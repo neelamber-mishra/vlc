@@ -57,6 +57,8 @@ FocusScope {
     property bool isMusic: true
     property string _placeHolder: isMusic ? VLCStyle.noArtAlbumCover : VLCStyle.noArtVideoCover
 
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
 
     // Aliases
 
@@ -69,6 +71,9 @@ FocusScope {
     property alias model: model
 
     property alias dragItem: dragItem
+
+    property alias displayMarginBeginning: view.displayMarginBeginning
+    property alias displayMarginEnd: view.displayMarginEnd
 
     // Events
 
@@ -129,8 +134,8 @@ FocusScope {
             resetFocus();
         }
 
-        onTransactionPendingChanged: {
-            if (transactionPending) {
+        function onBusynessChanged() {
+            if (transactionPending || loading) {
                 MainCtx.setCursor(root, Qt.BusyCursor)
                 visibilityTimer.start()
             } else {
@@ -138,6 +143,12 @@ FocusScope {
                 progressIndicator.visible = false
                 MainCtx.unsetCursor(root)
             }
+        }
+
+        Component.onCompleted: {
+            model.transactionPendingChanged.connect(model.onBusynessChanged)
+            model.loadingChanged.connect(model.onBusynessChanged)
+            model.onBusynessChanged()
         }
     }
 
@@ -151,7 +162,7 @@ FocusScope {
 
         z: 99
 
-        text: qsTr("Processing...")
+        text: root.model?.transactionPending ? qsTr("Processing...") : ""
 
         Timer {
             id: visibilityTimer
@@ -215,6 +226,9 @@ FocusScope {
 
             text: root.name
         }
+
+        fadingEdge.enableBeginningFade: root.enableBeginningFade
+        fadingEdge.enableEndFade: root.enableEndFade
 
         Navigation.parentItem: root
 

@@ -128,7 +128,7 @@ else
     if [ -z "$2" ];then
         FOUND="$FOUND $1"
     else
-        gotver=`$1 --version | head -1 | sed s/'.* '//`
+        gotver=`$1 --version | head -1 | grep -o '[0-9]\+\.[0-9]\+\(\.[0-9]\+\)\?' | head -1`
         check_version $1 $gotver $2
     fi
 fi
@@ -156,7 +156,7 @@ check automake 1.15
 check m4 1.4.16
 check libtool 2.4
 check pkg-config
-check cmake 3.21.0
+check cmake 3.28.0
 check_tar
 check_sed
 check ant

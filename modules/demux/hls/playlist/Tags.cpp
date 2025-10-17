@@ -42,8 +42,7 @@ uint64_t Attribute::decimal() const
     std::istringstream is(value);
     is.imbue(std::locale("C"));
     uint64_t ret;
-    is >> ret;
-    return ret;
+    return (is >> ret) ? ret : 0;
 }
 
 double Attribute::floatingPoint() const
@@ -51,8 +50,7 @@ double Attribute::floatingPoint() const
     std::istringstream is(value);
     is.imbue(std::locale("C"));
     double ret;
-    is >> ret;
-    return ret;
+    return (is >> ret) ? ret : 0;
 }
 
 std::vector<uint8_t> Attribute::hexSequence() const
@@ -65,32 +63,42 @@ std::vector<uint8_t> Attribute::hexSequence() const
             unsigned val;
             std::stringstream ss(value.substr(i, 2));
             ss.imbue(std::locale("C"));
-            ss >> std::hex >> val;
-            ret.push_back(val);
+            if((ss >> std::hex) >> val)
+                ret.push_back(val);
         }
     }
     return ret;
 }
 
-std::pair<std::size_t,std::size_t> Attribute::getByteRange() const
+static inline std::istream& operator>>(std::istream& is, adaptive::optional<std::size_t>& data)
 {
-    std::size_t length = 0;
-    std::size_t offset = 0;
+    size_t val;
+    if(is >> val)
+        data = val;
+    return is;
+}
+
+ByteRange Attribute::getByteRange() const
+{
+    std::size_t length;
+    adaptive::optional<std::size_t> offset;
     std::istringstream is(value);
     is.imbue(std::locale("C"));
 
-    if(!is.eof())
+    if(!is.good() || !(is >> length))
+        return ByteRange();
+
+    if(is.good())
     {
-        is >> length;
-        if(!is.eof())
+        char c = is.get();
+        if(c == '@' && is.good())
         {
-            char c = is.get();
-            if(c == '@' && !is.eof())
-                is >> offset;
+            if(!(is >> offset))
+                return ByteRange();
         }
     }
 
-    return std::make_pair(offset, length);
+    return ByteRange(std::move(offset), length);
 }
 
 std::pair<int, int> Attribute::getResolution() const
@@ -99,13 +107,13 @@ std::pair<int, int> Attribute::getResolution() const
 
     std::istringstream is(value);
     is.imbue(std::locale("C"));
-    if(!is.eof())
+    if(is.good())
     {
         is >> w;
-        if(!is.eof())
+        if(is.good())
         {
             char c = is.get();
-            if(c == 'x' && !is.eof())
+            if(c == 'x' && is.good())
                 is >> h;
         }
     }
@@ -190,10 +198,10 @@ void AttributesTag::parseAttributes(const std::string &field)
     std::istringstream iss(field);
     std::ostringstream oss;
 
-    while(!iss.eof())
+    while(iss.good())
     {
         /* parse attribute name */
-        while(!iss.eof())
+        while(iss.good())
         {
             char c = iss.peek();
             if((c >= 'A' && c <= 'Z') || c == '-')
@@ -214,7 +222,7 @@ void AttributesTag::parseAttributes(const std::string &field)
 
         /* parse attributes value */
         bool b_quoted = false;
-        while(!iss.eof())
+        while(iss.good())
         {
             char c = iss.peek();
             if(c == '\\' && b_quoted)
@@ -241,7 +249,7 @@ void AttributesTag::parseAttributes(const std::string &field)
                 continue;
             }
 
-            if(!iss.eof())
+            if(iss.good())
                 oss.put((char)iss.get());
         }
 

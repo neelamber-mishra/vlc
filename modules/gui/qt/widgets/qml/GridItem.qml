@@ -21,7 +21,7 @@ import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQml.Models
 
-
+import VLC.MainInterface
 import VLC.Widgets as Widgets
 import VLC.Util
 import VLC.Style
@@ -91,6 +91,12 @@ T.ItemDelegate {
     Accessible.onPressAction: root.playClicked()
 
     Keys.onMenuPressed: root.contextMenuButtonClicked(picture, root.mapToGlobal(0,0))
+
+    Component.onCompleted: {
+        // Qt Quick AbstractButton sets a cursor for itself, unset it so that if the view has
+        // busy cursor, it is visible over the delegate:
+        MainCtx.unsetCursor(this)
+    }
 
     // States
 
@@ -294,43 +300,22 @@ T.ItemDelegate {
                 root.playClicked()
             }
 
+            Component.onCompleted: {
+                root.GridView.reused.connect(picture.reinitialize)
+                root.GridView.pooled.connect(picture.releaseResources)
+            }
+
             DefaultShadow {
                 id: unselectedShadow
 
-                anchors.centerIn: parent
-
                 visible: opacity > 0
-
-                sourceItem: parent
-
-                width: picture.paintedWidth + viewportHorizontalOffset - Math.ceil(picture.padding) * 2
-                height: picture.paintedHeight + viewportVerticalOffset - Math.ceil(picture.padding) * 2
-
-                rectWidth: sourceSize.width
-                rectHeight: sourceSize.height
-
-                // TODO: Apply painted size's aspect ratio (constant) in source size
-                sourceSize: Qt.size(128, 128)
             }
 
             DoubleShadow {
                 id: selectedShadow
 
-                anchors.centerIn: parent
-
                 visible: opacity > 0
                 opacity: 0
-
-                sourceItem: parent
-
-                width: picture.paintedWidth + viewportHorizontalOffset - Math.ceil(picture.padding) * 2
-                height: picture.paintedHeight + viewportVerticalOffset - Math.ceil(picture.padding) * 2
-
-                rectWidth: sourceSize.width
-                rectHeight: sourceSize.height
-
-                // TODO: Apply painted size's aspect ratio (constant) in source size
-                sourceSize: Qt.size(128, 128)
 
                 primaryVerticalOffset: VLCStyle.dp(6, VLCStyle.scale)
                 primaryBlurRadius: VLCStyle.dp(18, VLCStyle.scale)
@@ -344,7 +329,7 @@ T.ItemDelegate {
             id: titleTextRect
 
             label: titleLabel
-            forceScroll: highlighted
+            forceScroll: root.visualFocus
             visible: root.title !== ""
             clip: scrolling
 

@@ -165,6 +165,8 @@ FocusScope {
     Loader {
         id: playerSpecializationLoader
 
+        objectName: "playerSpecializationLoader"
+
         anchors {
             left: parent.left
             right: parent.right
@@ -201,12 +203,19 @@ FocusScope {
 
                     cursorShape: playerSpecializationLoader.cursorShape
 
-                    onMouseMoved: {
+                    function onMouseEvent() {
                         //short interval for mouse events
                         if (Player.isInteractive)
                             interactiveAutoHideTimer.restart()
                         else
                             playerToolbarVisibilityFSM.mouseMove();
+                    }
+
+                    Component.onCompleted: {
+                        mouseMoved.connect(videoSurface.onMouseEvent)
+                        mousePressed.connect(videoSurface.onMouseEvent)
+                        mouseReleased.connect(videoSurface.onMouseEvent)
+                        mouseDblClicked.connect(videoSurface.onMouseEvent)
                     }
 
                     Binding on cursorShape {
@@ -276,11 +285,13 @@ FocusScope {
                         colorSet: ColorContext.View
                     }
 
-                    Widgets.BlurEffect {
+                    Widgets.DualKawaseBlur {
                         id: blurredBackground
 
-                        radius: 64
+                        radius: 3
 
+                        live: false
+                        
                         //destination aspect ratio
                         readonly property real dar: parent.width / parent.height
 
@@ -290,34 +301,52 @@ FocusScope {
 
                         source: textureProviderItem
 
-                        Widgets.TextureProviderItem {
-                            // Texture indirection to fool Qt into not creating an implicit
-                            // ShaderEffectSource because source image does not have fill mode
-                            // stretch. "If needed, MultiEffect will internally generate a
-                            // ShaderEffectSource as the texture source.": Qt creates a layer
-                            // if source has children, source is image and does not have
-                            // fill mode stretch or source size is null. In this case,
-                            // we really don't need Qt to create an implicit layer.
+                        postprocess: true
+                        tint: bgtheme.palette.isDark ? "black" : "white"
+                        tintStrength: 0.5
 
-                            // Note that this item does not create a new texture, it simply
-                            // represents the source image provider.
+                        // The window naturally clips the content, but having this saves some
+                        // video memory, depending on the excess content in the last layer:
+                        viewportRect: Qt.rect((width - parent.width) / 2, (height - parent.height) / 2, parent.width, parent.height)
+
+                        Widgets.TextureProviderItem {
                             id: textureProviderItem
 
-                            // Do not set textureSubRect, because we don't want blur to be
-                            // updated everytime the viewport changes. It is better to have
-                            // the static source texture blurred once, and adjust the blur
-                            // than to blur each time the viewport changes.
-
+                            // This should not be necessary anymore since `DualKawaseBlur`
+                            // does not create layer for the source implicitly as `MultiEffect`
+                            // or `FastBlur` does as they deem necessary (in this case, it
+                            // is not necessary). But due to a Qt bug when `mipmap: true` is
+                            // used where texture sampling becomes broken, we need this as
+                            // `QSGTextureView` has a workaround for that bug. This is totally
+                            // acceptable as there is virtually no overhead.
                             source: cover
                         }
 
-                        Widgets.FastBlend {
-                            anchors.fill: parent
+                        Component.onCompleted: {
+                            // Blur layers are effect-size dependent, so once the user starts resizing the window (hence the effect),
+                            // we should either momentarily turn on live, or repeatedly call `scheduleUpdate()`. Due to the optimization,
+                            // calling `scheduleUpdate()` would continuously create and release intermediate layers, which would be a
+                            // really bad idea. So instead, we turn on live and after some time passes turn it off again.
+                            widthChanged.connect(liveTimer, liveTimer.transientTurnOnLive)
+                            heightChanged.connect(liveTimer, liveTimer.transientTurnOnLive)
+                        }
 
-                            color: Qt.rgba(0.5, 0.5, 0.5, 1.0)
+                        Timer {
+                            id: liveTimer
 
-                            mode: bgtheme.palette.isDark ? Widgets.FastBlend.Mode.Multiply // multiply makes darker
-                                                         : Widgets.FastBlend.Mode.Screen // screen (inverse multiply) makes lighter
+                            repeat: false
+                            interval: VLCStyle.duration_humanMoment
+
+                            function transientTurnOnLive() {
+                                if (!blurredBackground.sourceTextureIsValid)
+                                    return
+                                blurredBackground.live = true
+                                liveTimer.restart()
+                            }
+
+                            onTriggered: {
+                                blurredBackground.live = false
+                            }
                         }
                     }
                 }
@@ -358,23 +387,6 @@ FocusScope {
 
                             readonly property real sizeConstant: 2.7182
 
-                            Widgets.DynamicShadow {
-                                anchors.centerIn: cover
-                                sourceItem: cover
-
-                                color: Qt.rgba(0, 0, 0, .18)
-                                yOffset: VLCStyle.dp(24)
-                                blurRadius: VLCStyle.dp(54)
-                            }
-
-                            Widgets.DynamicShadow {
-                                anchors.centerIn: cover
-                                sourceItem: cover
-
-                                color: Qt.rgba(0, 0, 0, .22)
-                                yOffset: VLCStyle.dp(5)
-                                blurRadius: VLCStyle.dp(14)
-                            }
 
                             Image {
                                 id: cover
@@ -388,19 +400,70 @@ FocusScope {
 
                                 readonly property real eDPR: MainCtx.effectiveDevicePixelRatio(Window.window)
 
+                                readonly property url targetSource: VLCAccessImage.uri(rootPlayer.coverSource)
+
                                 anchors.top: parent.top
                                 anchors.bottom: parent.bottom
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                source: VLCAccessImage.uri(rootPlayer.coverSource)
+                                source: targetSource
                                 fillMode: Image.PreserveAspectFit
                                 mipmap: true
                                 cache: false
                                 asynchronous: true
 
+                                onTargetSourceChanged: {
+                                    cover.source = targetSource
+                                }
+
+                                onStatusChanged: {
+                                    if (status === Image.Ready) {
+                                        // This also covers source (and other parameters) change and not only initial loading
+                                        if (blurredBackground.sourceTextureIsValid) {
+                                            // Possible image switch and stale texture (especially old Qt without patch c871a52), we
+                                            // should wait one frame for the texture to be updated to avoid applying blur on stale one.
+                                            blurredBackground.scheduleUpdate(true)
+                                        } else {
+                                            // If not valid, the blur effect is going to wait appropriately until valid itself:
+                                            // Initial case (such as switching to player page), or switching images with recent Qt.
+                                            blurredBackground.scheduleUpdate(false)
+                                        }
+                                    } else if (status === Image.Error) {
+                                        cover.source = VLCStyle.noArtAlbumCover
+                                    }
+                                }
+
                                 sourceSize: Qt.size(maximumSize, maximumSize)
 
                                 Accessible.role: Accessible.Graphic
                                 Accessible.name: qsTr("Cover")
+
+                                Component.onCompleted: {
+                                    // After the update on source change, there can be another update when the mipmaps are generated.
+                                    // We intentionally do not wait for this, initially using non-mipmapped source should be okay. As
+                                    // the user should not be greeted with a black background until the mipmaps are ready, let alone
+                                    // the possibility of knowing if the mipmaps are actually going to be ready as expected.
+                                    // If the texture is not valid yet (which is signalled the latest), blur effect is going to queue
+                                    // an update itself similar to the case when the source itself changes, so we do not check validity
+                                    // of the texture here.
+                                    blurredBackground.sourceTextureProviderObserver.hasMipmapsChanged.connect(blurredBackground,
+                                                                                                              (hasMipmaps /*: bool */) => {
+                                                                                                                  if (hasMipmaps) {
+                                                                                                                      blurredBackground.scheduleUpdate()
+                                                                                                                  }
+                                                                                                              })
+                                }
+
+                                Widgets.RoundedRectangleShadow {
+                                    color: Qt.rgba(0, 0, 0, .18)
+                                    yOffset: VLCStyle.dp(24)
+                                    blurRadius: VLCStyle.dp(54)
+                                }
+
+                                Widgets.RoundedRectangleShadow {
+                                    color: Qt.rgba(0, 0, 0, .22)
+                                    yOffset: VLCStyle.dp(5)
+                                    blurRadius: VLCStyle.dp(14)
+                                }
                             }
                         }
 

@@ -45,13 +45,12 @@
 // Ctor / dtor
 //-------------------------------------------------------------------------------------------------
 
-PlaylistsDialog::PlaylistsDialog(qt_intf_t * _p_intf) : QVLCFrame(_p_intf)
+PlaylistsDialog::PlaylistsDialog(qt_intf_t * _p_intf, const QVariantList &media, MLPlaylistListModel::PlaylistType type, QWindow *parent)
+    : QVLCDialog(parent, _p_intf)
 {
     MainCtx * mainCtx = p_intf->p_mi;
 
     assert(mainCtx->hasMediaLibrary());
-
-    setWindowFlags(Qt::Tool);
 
     setWindowRole("vlc-playlists");
 
@@ -70,6 +69,7 @@ PlaylistsDialog::PlaylistsDialog(qt_intf_t * _p_intf) : QVLCFrame(_p_intf)
     connect(m_playlists, &QTreeView::doubleClicked, this, &PlaylistsDialog::onDoubleClicked);
 
     m_model = new MLPlaylistListModel(m_playlists);
+    m_model->setPlaylistType(type);
 
     m_model->setMl(mainCtx->getMediaLibrary());
 
@@ -107,8 +107,8 @@ PlaylistsDialog::PlaylistsDialog(qt_intf_t * _p_intf) : QVLCFrame(_p_intf)
 
     m_button->setEnabled(false);
 
-    connect(buttonBox, &QDialogButtonBox::accepted, this, &PlaylistsDialog::onAccepted);
-    connect(buttonBox, &QDialogButtonBox::rejected, this, &PlaylistsDialog::close);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &PlaylistsDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &PlaylistsDialog::reject);
 
     m_label = new QLabel(this);
 
@@ -126,52 +126,20 @@ PlaylistsDialog::PlaylistsDialog(qt_intf_t * _p_intf) : QVLCFrame(_p_intf)
     layout->addLayout(layoutButtons);
 
     // FIXME: Is this the right default size ?
-    restoreWidgetPosition("Playlists", QSize(320, 320));
+    QVLCTools::restoreWidgetPosition(p_intf, "Playlists", this, QSize(320, 320));
 
     updateGeometry();
-}
 
-PlaylistsDialog::~PlaylistsDialog() /* override */
-{
-    saveWidgetPosition("Playlists");
-}
-
-//-------------------------------------------------------------------------------------------------
-// Interface
-//-------------------------------------------------------------------------------------------------
-
-/* Q_INVOKABLE */ void PlaylistsDialog::setMedias(const QVariantList & medias)
-{
-    m_ids = medias;
-
-    m_label->setText(qtr("%1 Media(s)").arg(m_ids.count()));
-}
-
-//-------------------------------------------------------------------------------------------------
-// Events
-//-------------------------------------------------------------------------------------------------
-
-void PlaylistsDialog::hideEvent(QHideEvent *) /* override */
-{
-    // NOTE: We clear the lineEdit when hiding the dialog.
-    m_lineEdit->clear();
-}
-
-void PlaylistsDialog::keyPressEvent(QKeyEvent * event) /* override */
-{
-    int key = event->key();
-
-    // FIXME: For some reason we have to do this manually on here. Shouldn't QDialogButtonBox do
-    //        this automatically ?
-    if (key == Qt::Key_Return || key == Qt::Key_Enter)
     {
-        if (m_button->isEnabled())
-            onAccepted();
-
-        return;
+        assert(!media.isEmpty());
+        m_ids = media;
+        m_label->setText(qtr("%1 Media").arg(m_ids.count()));
     }
+}
 
-    QVLCFrame::keyPressEvent(event);
+PlaylistsDialog::~PlaylistsDialog()
+{
+    QVLCTools::saveWidgetPosition(p_intf, "Playlists", this);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -191,7 +159,7 @@ void PlaylistsDialog::onDoubleClicked()
     if (m_button->isEnabled() == false)
         return;
 
-    onAccepted();
+    accept();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -207,7 +175,7 @@ void PlaylistsDialog::onTextEdited()
         m_button->setEnabled(true);
 }
 
-void PlaylistsDialog::onAccepted()
+void PlaylistsDialog::accept()
 {
 
     QString text = m_lineEdit->text();
@@ -222,5 +190,18 @@ void PlaylistsDialog::onAccepted()
         m_model->create(text, m_ids);
     }
 
-    close();
+    // Model is asynchronous, we need to wait for the model to complete processing...
+    if (Q_LIKELY(m_model->transactionPending())) // Same thread, TOCTOU is not relevant.
+    {
+        hide();
+
+        connect(m_model, &MLPlaylistListModel::transactionPendingChanged, this, [this](bool done) {
+            if (!done)
+                QVLCDialog::accept();
+            }, Qt::SingleShotConnection);
+    }
+    else
+    {
+        QVLCDialog::accept();
+    }
 }

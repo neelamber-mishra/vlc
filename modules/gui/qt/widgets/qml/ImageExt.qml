@@ -26,6 +26,10 @@ import QtQuick
 // NOTE: Extra features are only available with the RHI graphics backend,
 //       particularly when shaders are supported.
 // NOTE: Do not use this type if none of the extra features are used.
+// NOTE: This item is also a texture provider, but for technical reasons, it is through an anonymous
+//       item exposed through `textureProviderItem`. Note that, postprocessing (any non-image/texture
+//       level manipulation) is not going to be reflected in the texture (similar to `Image`). Unless
+//       particularly specified, the extra features of `ImageExt` are postprocessing features.
 Item {
     id: root
 
@@ -51,7 +55,21 @@ Item {
     property alias sourceSize: image.sourceSize
     property alias sourceClipRect: image.sourceClipRect
     property alias status: image.status
+    property alias shaderStatus: shaderEffect.status
     property alias cache: image.cache
+
+    // Normally `Image` itself is inherently a texture provider (without needing a layer), but
+    // in `ImageExt` case, it is not. Obviously when `Image` is a texture provider, postprocess
+    // manipulations (such as, `fillMode`, or `mirror`) would not be reflected in the texture.
+    // The same applies here, any postprocessing feature such as rounding, background coloring,
+    // outlining, would not be reflected in the texture. Still, we should make it possible to
+    // expose a texture provider so that the texture can be accessed. Unfortunately QML does
+    // not make it possible, but we can simply provide the `Image` here. I purposefully do
+    // not use an alias property, because I do not want to expose the provider as an `Image`,
+    // but rather as `Item`.
+    // WARNING: Consumers who downcast this item to `Image` are doing this on their own
+    //          discretion. It is discouraged, but not forbidden (or evil).
+    readonly property Item textureProviderItem: image
 
     // Padding represents how much the content is shrunk. For now this is a readonly property.
     // Currently it only takes the `softEdgeMax` into calculation, as that's what the shader
@@ -96,14 +114,17 @@ Item {
     // need that. This makes it feasible to use `PreserveAspectCrop`
     // in delegate, where we want to have effective batching. Note
     // that such option is still not free, because the fragment
-    // shader has to do additional calculations that way. Also note
-    // that a clip node is still necessary if radius is 0, as in
-    // that case the default image is used directly.
+    // shader has to do additional calculations that way.
     fillMode: Image.PreserveAspectFit
 
     property real radius
+    property real radiusTopRight: radius
+    property real radiusTopLeft: radius
+    property real radiusBottomRight: radius
+    property real radiusBottomLeft: radius
+
     property alias backgroundColor: shaderEffect.backgroundColor
-    readonly property real effectiveRadius: shaderEffect.readyForVisibility ? radius : 0.0
+    readonly property real effectiveRadius: shaderEffect.readyForVisibility ? Math.max(radiusTopRight, radiusTopLeft, radiusBottomRight, radiusBottomLeft) : 0.0
     readonly property color effectiveBackgroundColor: shaderEffect.readyForVisibility ? backgroundColor : "transparent"
 
     // Border:
@@ -137,7 +158,8 @@ Item {
 
         visible: readyForVisibility
 
-        readonly property bool readyForVisibility: (GraphicsInfo.shaderType === GraphicsInfo.RhiShader) &&
+        readonly property bool readyForVisibility: (image.status === Image.Ready) /* TODO: investigate using TextureProviderObserver::isValid instead */ &&
+                                                   (GraphicsInfo.shaderType === GraphicsInfo.RhiShader) &&
                                                    (root.radius > 0.0 || root.borderWidth > 0 || backgroundColor.a > 0.0 || root.fillMode === Image.PreserveAspectCrop)
 
         smooth: root.smooth
@@ -148,15 +170,16 @@ Item {
 
         antialiasing: root.antialiasing
 
-        // FIXME: Culling seems to cause issues, such as when the view is layered due to
-        //        fading edge effec, this is most likely a Qt bug.
-        // cullMode: ShaderEffect.BackFaceCulling
+        // cullMode: ShaderEffect.BackFaceCulling // QTBUG-136611 (Layering breaks culling with OpenGL)
 
-        readonly property real radius: Math.min(1.0, Math.max(root.radius / (Math.min(width, height) / 2), 0.0))
-        readonly property real radiusTopRight: radius
-        readonly property real radiusBottomRight: radius
-        readonly property real radiusTopLeft: radius
-        readonly property real radiusBottomLeft: radius
+        function normalizeRadius(radius: real) : real {
+            return Math.min(1.0, Math.max(radius / (Math.min(width, height) / 2), 0.0))
+        }
+
+        readonly property real radiusTopRight: normalizeRadius(root.radiusTopRight)
+        readonly property real radiusBottomRight: normalizeRadius(root.radiusBottomRight)
+        readonly property real radiusTopLeft: normalizeRadius(root.radiusTopLeft)
+        readonly property real radiusBottomLeft: normalizeRadius(root.radiusBottomLeft)
 
         property color backgroundColor: "transparent"
 

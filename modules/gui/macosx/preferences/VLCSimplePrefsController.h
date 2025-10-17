@@ -112,12 +112,13 @@
 @property (readwrite, weak) IBOutlet NSPopUpButton *intf_languagePopup;
 @property (readwrite, weak) IBOutlet NSTextField *intf_languageLabel;
 @property (readwrite, weak) IBOutlet NSButton *intf_statusIconCheckbox;
-@property (readwrite, weak) IBOutlet NSButton *intf_largeFontInListsCheckbox;
+@property (readwrite, weak) IBOutlet NSButton *intf_displayTrackNumberPlayQueueCheckBox;
 
 // intf pane - control box
 @property (readwrite, weak) IBOutlet NSBox *intf_playbackControlBox;
 @property (readwrite, weak) IBOutlet NSTextField *intf_continueplaybackLabel;
 @property (readwrite, weak) IBOutlet NSPopUpButton *intf_continueplaybackPopup;
+@property (readwrite, weak) IBOutlet NSButton *intf_displayEndOfPlaybackViewCheckBox;
 
 // intf pane - behaviour box
 @property (readwrite, weak) IBOutlet NSBox *intf_playbackBehaviourBox;
@@ -176,6 +177,7 @@
 @property (readwrite, weak) IBOutlet NSButton *video_onTopCheckbox;
 @property (readwrite, weak) IBOutlet NSButton *video_videodecoCheckbox;
 @property (readwrite, weak) IBOutlet NSButton *video_resizeToNativeSizeCheckbox;
+@property (readwrite, weak) IBOutlet NSButton *video_useClassicLayoutCheckbox;
 
 // video pane - fullscreen box
 @property (readwrite, weak) IBOutlet NSBox *video_fullscreenBox;

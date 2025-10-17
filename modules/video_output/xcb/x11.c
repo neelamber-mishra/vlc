@@ -47,7 +47,6 @@ typedef struct vout_display_sys_t
     xcb_shm_seg_t segment; /**< shared memory segment XID */
     bool attached;
     uint8_t depth; /* useful bits per pixel */
-    video_format_t fmt;
 } vout_display_sys_t;
 
 static void Prepare(vout_display_t *vd, picture_t *pic,
@@ -134,19 +133,19 @@ static void Display (vout_display_t *vd, picture_t *pic)
         ck = xcb_shm_put_image_checked(conn, sys->window, sys->gc,
               /* real width */ pic->p->i_pitch / pic->p->i_pixel_pitch,
              /* real height */ pic->p->i_lines,
-                       /* x */ sys->fmt.i_x_offset,
-                       /* y */ sys->fmt.i_y_offset,
-                   /* width */ sys->fmt.i_visible_width,
-                  /* height */ sys->fmt.i_visible_height,
+                       /* x */ vd->fmt->i_x_offset,
+                       /* y */ vd->fmt->i_y_offset,
+                   /* width */ vd->fmt->i_visible_width,
+                  /* height */ vd->fmt->i_visible_height,
                                vd->place->x, vd->place->y, sys->depth,
                                XCB_IMAGE_FORMAT_Z_PIXMAP, 0,
                                segment, buf->offset);
     else {
-        const size_t offset = sys->fmt.i_x_offset * pic->p->i_pixel_pitch
-                            + sys->fmt.i_y_offset * pic->p->i_pitch;
-        unsigned int lines = pic->p->i_lines - sys->fmt.i_y_offset;
+        const size_t offset = vd->fmt->i_x_offset * pic->p->i_pixel_pitch
+                            + vd->fmt->i_y_offset * pic->p->i_pitch;
+        unsigned int lines = pic->p->i_lines - vd->fmt->i_y_offset;
 
-        if (sys->fmt.i_x_offset > 0) {
+        if (vd->fmt->i_x_offset > 0) {
             /*
              * Draw the last line separately as the scan line padding would
              * potentially reach beyond the end of the picture buffer.
@@ -187,44 +186,30 @@ static void Display (vout_display_t *vd, picture_t *pic)
         xcb_shm_detach(conn, segment);
 }
 
-static int ResetPictures(vout_display_t *vd, video_format_t *fmt)
+static int ResetPictures(vout_display_t *vd, video_format_t *restrict f)
 {
-    vout_display_sys_t *sys = vd->sys;
     video_format_t src;
 
     video_format_ApplyRotation(&src, vd->source);
-    sys->fmt.i_width  = src.i_width  * vd->place->width / src.i_visible_width;
-    sys->fmt.i_height = src.i_height * vd->place->height / src.i_visible_height;
+    f->i_width  = src.i_width  * vd->place->width / src.i_visible_width;
+    f->i_height = src.i_height * vd->place->height / src.i_visible_height;
 
-    sys->fmt.i_visible_width  = vd->place->width;
-    sys->fmt.i_visible_height = vd->place->height;
-    sys->fmt.i_x_offset = src.i_x_offset * vd->place->width / src.i_visible_width;
-    sys->fmt.i_y_offset = src.i_y_offset * vd->place->height / src.i_visible_height;
-
-    *fmt = sys->fmt;
+    f->i_visible_width  = vd->place->width;
+    f->i_visible_height = vd->place->height;
+    f->i_x_offset = src.i_x_offset * vd->place->width / src.i_visible_width;
+    f->i_y_offset = src.i_y_offset * vd->place->height / src.i_visible_height;
     return VLC_SUCCESS;
 }
 
 static int Control(vout_display_t *vd, int query)
 {
-    vout_display_sys_t *sys = vd->sys;
-
     switch (query) {
-    case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE: {
-        uint32_t mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-        const uint32_t values[] = {
-            vd->cfg->display.width, vd->cfg->display.height,
-        };
-
-        xcb_configure_window(sys->conn, sys->window, mask, values);
-    }
-        /* fall through */
     case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
     case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
     case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
     {
-        if (vd->place->width  != sys->fmt.i_visible_width
-         || vd->place->height != sys->fmt.i_visible_height)
+        if (vd->place->width  != vd->fmt->i_visible_width
+         || vd->place->height != vd->fmt->i_visible_height)
             return VLC_EGENERIC;
 
         return VLC_SUCCESS;
@@ -234,6 +219,24 @@ static int Control(vout_display_t *vd, int query)
         msg_Err (vd, "Unknown request in XCB vout display");
         return VLC_EGENERIC;
     }
+}
+
+static int SetDisplaySize(vout_display_t *vd, unsigned width, unsigned height)
+{
+    vout_display_sys_t *sys = vd->sys;
+
+    uint32_t mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    const uint32_t values[] = {
+        width, height,
+    };
+
+    xcb_configure_window(sys->conn, sys->window, mask, values);
+
+    if (vd->place->width  != vd->fmt->i_visible_width ||
+        vd->place->height != vd->fmt->i_visible_height)
+        return VLC_EGENERIC;
+
+    return VLC_SUCCESS;
 }
 
 /**
@@ -299,6 +302,7 @@ static const struct vlc_display_operations ops = {
     .close = Close,
     .prepare = Prepare,
     .display = Display,
+    .set_display_size = SetDisplaySize,
     .control = Control,
     .reset_pictures = ResetPictures,
 };
@@ -388,8 +392,8 @@ static int Open (vout_display_t *vd,
     else
         sys->segment = 0;
 
-    sys->fmt = *fmtp;
     /* Setup vout_display_t once everything is fine */
+    ResetPictures(vd, fmtp);
     vd->ops = &ops;
 
     (void) context;

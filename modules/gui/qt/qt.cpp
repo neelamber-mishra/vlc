@@ -546,13 +546,7 @@ static void *ThreadCleanup( qt_intf_t *p_intf, CleanupReason cleanupReason );
 
 #ifdef Q_OS_MAC
 /* Used to abort the app.exec() on OSX after libvlc_Quit is called */
-#include "../../../lib/libvlc_internal.h" /* libvlc_SetExitHandler */
 #include <CoreFoundation/CFRunLoop.h>
-static void Abort( void *obj )
-{
-    (void)obj;
-    triggerQuit();
-}
 #endif
 
 /* Open Interface */
@@ -607,9 +601,9 @@ static int OpenInternal( qt_intf_t *p_intf )
     /* */
 #ifdef Q_OS_MAC
     /* Run mainloop on the main thread as Cocoa requires */
-    libvlc_SetExitHandler( vlc_object_instance(p_intf), Abort, p_intf );
     CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopDefaultMode, ^{
         Thread(static_cast<void*>(p_intf));
+        vlc_sem_post(&p_intf->wait_quit);
     });
     CFRunLoopWakeUp(CFRunLoopGetMain());
 #else
@@ -648,7 +642,10 @@ static void CloseInternal( qt_intf_t *p_intf )
     msg_Dbg( p_intf, "waiting for UI thread..." );
 #ifndef Q_OS_MAC
     vlc_join (p_intf->thread, NULL);
+#else
+    vlc_sem_wait(&p_intf->wait_quit);
 #endif
+
 
     //mutex scope
     {
@@ -678,6 +675,7 @@ static int OpenIntfCommon( vlc_object_t *p_this, bool dialogProvider )
         vlc_object_delete(p_intf);
         return VLC_EGENERIC;
     }
+    vlc_sem_init(&p_intf->wait_quit, 0);
     p_intf->intf = intfThread;
     p_intf->b_isDialogProvider = dialogProvider;
     p_intf->isShuttingDown = false;
@@ -750,7 +748,8 @@ static inline void registerMetaTypes()
     qRegisterMetaType<ssize_t>();
     qRegisterMetaType<vlc_tick_t>();
 
-    qRegisterMetaType<VLCTick>();
+    qRegisterMetaType<VLCTime>();
+    qRegisterMetaType<VLCDuration>();
     qRegisterMetaType<SharedInputItem>();
     qRegisterMetaType<NetworkTreeItem>();
     qRegisterMetaType<Playlist>();
@@ -856,31 +855,6 @@ static void *Thread( void *obj )
     Q_INIT_RESOURCE( qmake_QtQuick_Controls_Basic_impl );
     Q_INIT_RESOURCE( qmake_QtQuick_Layouts );
     Q_INIT_RESOURCE( qmake_QtQuick_Templates );
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    // Qt Quick Effects:
-    Q_INIT_RESOURCE( qmake_QtQuick_Effects );
-    Q_INIT_RESOURCE( effects );
-    Q_INIT_RESOURCE( multieffect_shaders1 );
-    Q_INIT_RESOURCE( multieffect_shaders2 );
-    Q_INIT_RESOURCE( multieffect_shaders3 );
-    Q_INIT_RESOURCE( multieffect_shaders4 );
-    Q_INIT_RESOURCE( multieffect_shaders6 );
-    Q_INIT_RESOURCE( multieffect_shaders8 );
-    Q_INIT_RESOURCE( multieffect_shaders9 );
-    Q_INIT_RESOURCE( multieffect_shaders12 );
-    Q_INIT_RESOURCE( multieffect_shaders14 );
-    Q_INIT_RESOURCE( multieffect_shaders15 );
-    Q_INIT_RESOURCE( multieffect_shaders18 );
-    Q_INIT_RESOURCE( multieffect_shaders20 );
-    Q_INIT_RESOURCE( multieffect_shaders21 );
-    Q_INIT_RESOURCE( multieffect_shaders24 );
-#else
-    Q_INIT_RESOURCE( qmake_Qt5Compat_GraphicalEffects );
-    Q_INIT_RESOURCE( qmake_Qt5Compat_GraphicalEffects_private );
-    Q_INIT_RESOURCE( qtgraphicaleffectsplugin_raw_qml_0 );
-    Q_INIT_RESOURCE( qtgraphicaleffectsprivate_raw_qml_0 );
-    Q_INIT_RESOURCE( qtgraphicaleffectsshaders );
-#endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
     Q_INIT_RESOURCE( QuickControls2Basic_raw_qml_0 );
@@ -915,6 +889,36 @@ static void *Thread( void *obj )
         const auto ret = QCoreApplication::installTranslator(translator);
         assert(ret);
     }
+
+    /* Ctrl+Q, or more specifically Command+Q on MacOS is going
+     * through the NSApplication/NSApplicationDelegate selector
+     * applicationShouldTerminate:, which is catched by Qt and
+     * trigger termination of the app.exec() runloop.
+     * We don't want to quit right now and instead trigger
+     * libvlc_Quit() to unload the interface from Close and avoid
+     * racing the window by removing the eventloop before it's
+     * destroyed. */
+    class QuitSpy : public QObject
+    {
+        qt_intf_t *m_intf;
+    public:
+        QuitSpy(QObject *parent, qt_intf_t *intf)
+             : QObject(parent), m_intf(intf)
+        {
+            qGuiApp->installEventFilter(this);
+        }
+        bool eventFilter(QObject *o, QEvent *e) override
+        {
+            (void)o;
+            if (e->type() == QEvent::Quit)
+            {
+             DialogsProvider::getInstance(m_intf)->quit();
+                return true;
+            }
+            return false;
+        }
+    };
+    QuitSpy quitSpy(&app, p_intf);
 
     registerMetaTypes();
 
@@ -967,11 +971,12 @@ static void *Thread( void *obj )
     };
 
     static const char* const asyncRhiProbeCompletedProperty = "asyncRhiProbeCompleted";
+    // NOTE: `QSettings` accepts `QAnyStringView` starting from Qt 6.4, use `QLatin1String(View)`:
+    static constexpr QLatin1String graphicsApiKey {"graphics-api"};
     if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND") &&
         qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND") &&
         (QT_VERSION < QT_VERSION_CHECK(6, 4, 0) || !uint(qEnvironmentVariableIntValue("QSG_RHI_PREFER_SOFTWARE_RENDERER"))))
     {
-        static const char* const graphicsApiKey = "graphics-api";
         const QVariant graphicsApiValue = p_intf->mainSettings->value(graphicsApiKey);
         // settings value can be string (ini file), do not use `typeId()`:
         if (graphicsApiValue.isValid() && Q_LIKELY(graphicsApiValue.canConvert<int>()))
@@ -1026,12 +1031,16 @@ static void *Thread( void *obj )
     p_intf->p_mainPlayerController = new PlayerController(p_intf);
     p_intf->p_mainPlaylistController = new vlc::playlist::PlaylistController(p_intf->p_playlist);
 
-    std::unique_ptr<ModelRecoveryAgent> playlistModelRecoveryAgent;
-    QMetaObject::invokeMethod(&app, [&playlistModelRecoveryAgent, p_intf]() {
+    std::optional playlistModelRecoveryAgent = std::unique_ptr<ModelRecoveryAgent>();
+    QMetaObject::invokeMethod(&app, [&playlistModelRecoveryAgent, settings = QPointer(p_intf->mainSettings), mpc = QPointer(p_intf->p_mainPlaylistController)]() {
+        if (Q_UNLIKELY(!playlistModelRecoveryAgent)) // std::optional is nullopt, reset() was already called
+            return;
+        if (Q_UNLIKELY(!settings || !mpc))
+            return;
         try {
-            playlistModelRecoveryAgent = std::make_unique<ModelRecoveryAgent>(p_intf->mainSettings,
+            playlistModelRecoveryAgent = std::make_unique<ModelRecoveryAgent>(settings.get(),
                                                                               QStringLiteral("Playlist"),
-                                                                              p_intf->p_mainPlaylistController);
+                                                                              mpc.get());
         } catch (...){ }
     }, Qt::QueuedConnection);
 
@@ -1053,7 +1062,7 @@ static void *Thread( void *obj )
                              &QQuickWindow::sceneGraphError,
                              &app,
                              [&app, mainCtx, settings](QQuickWindow::SceneGraphError error, const QString &message) {
-                                 qWarning() << "Compositor: Scene Graph Error: " << error << ", Message: " << message;
+                                 qCritical() << "Compositor: Scene Graph Error: " << error << ", Message: " << message;
                                  assert(mainCtx);
 #ifdef _WIN32
                                 // This is not really important, as with graceful exit the events in the queue should
@@ -1062,7 +1071,7 @@ static void *Thread( void *obj )
                                  if (!app.property(asyncRhiProbeCompletedProperty).toBool())
                                  {
                                      assert(settings);
-                                     settings->remove(asyncRhiProbeCompletedProperty);
+                                     settings->remove(graphicsApiKey);
                                      settings->sync();
                                  }
 #endif
@@ -1243,7 +1252,7 @@ static void WindowCloseCb( vlc_window_t * )
 /**
  * Video output window provider
  */
-static int WindowOpen( vlc_window_t *p_wnd )
+static int WindowOpen( vlc_window_t *p_wnd ) try
 {
     if( !var_InheritBool( p_wnd, "embedded-video" ) )
         return VLC_EGENERIC;
@@ -1280,4 +1289,8 @@ static int WindowOpen( vlc_window_t *p_wnd )
             p_intf->refCount += 1;
         return ret ? VLC_SUCCESS : VLC_EGENERIC;
     }
+}
+catch (std::bad_alloc&)
+{
+    return VLC_ENOMEM;
 }

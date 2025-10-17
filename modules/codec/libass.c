@@ -466,9 +466,8 @@ static void SubpictureUpdate( subpicture_t *p_subpic,
      * reinstanciate a lot the scaler, and as we do not support subpel blending
      * it looks ugly (text unaligned).
      */
-    const int i_max_region = 4;
-    rectangle_t region[i_max_region];
-    const int i_region = BuildRegions( region, i_max_region, p_img, p_fmt_dst->i_width, p_fmt_dst->i_height );
+    rectangle_t region[4];
+    const int i_region = BuildRegions( region, ARRAY_SIZE(region), p_img, p_fmt_dst->i_width, p_fmt_dst->i_height );
 
     if( i_region <= 0 )
     {
@@ -482,6 +481,10 @@ static void SubpictureUpdate( subpicture_t *p_subpic,
     fmt_region.i_chroma   = VLC_CODEC_RGBA;
     fmt_region.i_x_offset = 0;
     fmt_region.i_y_offset = 0;
+    fmt_region.transfer = TRANSFER_FUNC_SRGB;
+    fmt_region.primaries = COLOR_PRIMARIES_SRGB;
+    fmt_region.space = COLOR_SPACE_SRGB;
+    fmt_region.color_range = COLOR_RANGE_FULL;
     for( int i = 0; i < i_region; i++ )
     {
         subpicture_region_t *r;
@@ -761,6 +764,9 @@ static void OldEngineClunkyRollInfoPatch( decoder_t *p_dec, ASS_Track *p_track )
 
     stream_t *p_memstream = vlc_stream_MemoryNew( p_dec, p_dec->fmt_in->p_extra,
                                                   p_dec->fmt_in->i_extra, true );
+    if (unlikely(!p_memstream))
+        return;
+
     char *s = vlc_stream_ReadLine( p_memstream );
     unsigned playres[2] = {0, 0};
     bool b_hotfix = false;

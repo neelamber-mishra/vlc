@@ -3191,7 +3191,7 @@ struct vlc_player_cbs
      * @param data opaque pointer set by vlc_player_AddListener()
      */
     void (*on_media_subitems_changed)(vlc_player_t *player,
-        input_item_t *media, input_item_node_t *new_subitems, void *data);
+        input_item_t *media, const input_item_node_t *new_subitems, void *data);
 
     /**
      * Called when new attachments are added to the media
@@ -3339,6 +3339,9 @@ struct vlc_player_timer_point
     vlc_tick_t ts;
     /** Valid length >= VLC_TICK_0 or VLC_TICK_INVALID */
     vlc_tick_t length;
+    /** if true, length represents the seek range and position is the position
+     * within that seek_range */
+    bool live;
     /** System date of this record (always valid), this date can be in the
      * future or in the past. The special value of INT64_MAX mean that the
      * clock was paused when this point was updated. In that case,

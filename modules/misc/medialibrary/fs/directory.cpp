@@ -41,9 +41,9 @@
 #include <system_error>
 #include <vector>
 
-using InputItemPtr = vlc_shared_data_ptr_type(input_item_t,
-                                              input_item_Hold,
-                                              input_item_Release);
+using InputItemPtr = ::vlc::vlc_shared_data_ptr<input_item_t,
+                                                &input_item_Hold,
+                                                &input_item_Release>;
 
 namespace vlc {
   namespace medialibrary {
@@ -147,6 +147,7 @@ static void onParserSubtreeAdded( input_item_t *, input_item_node_t *subtree,
         input_item_t* media = child->p_item;
         req->children->emplace_back( media );
     }
+    input_item_node_Delete(subtree);
 }
 
 } /* extern C */

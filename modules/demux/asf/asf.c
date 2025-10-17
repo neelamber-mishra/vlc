@@ -40,6 +40,7 @@
 #include <vlc_vout.h>
 
 #include <limits.h>
+#include <stdckdint.h>
 
 #include "asfpacket.h"
 #include "libasf.h"
@@ -790,6 +791,8 @@ static void ASF_fillup_es_bitrate_priorities_ex( demux_sys_t *p_sys, void *p_hdr
 static int DemuxInit( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
+    asf_es_priorities_t fmt_priorities_ex = { NULL, 0 };
+    asf_es_priorities_t fmt_priorities_bitrate_ex = { NULL, 0 };
 
     /* init context */
     p_sys->i_time   = VLC_TICK_INVALID;
@@ -861,8 +864,6 @@ static int DemuxInit( demux_t *p_demux )
                                               &asf_object_header_extension_guid, 0 );
 
     asf_object_language_list_t *p_languages = NULL;
-    asf_es_priorities_t fmt_priorities_ex = { NULL, 0 };
-    asf_es_priorities_t fmt_priorities_bitrate_ex = { NULL, 0 };
 
     if( p_hdr_ext )
     {
@@ -1256,8 +1257,9 @@ static int DemuxInit( demux_t *p_demux )
                   p_sys->p_fp->i_min_data_packet_size;
 
         /* calculate the time duration in micro-s */
-        p_sys->i_length = VLC_TICK_FROM_MSFTIME(p_sys->p_fp->i_play_duration) *
-                   (vlc_tick_t)i_count /
+        if ( ckd_mul(&p_sys->i_length, VLC_TICK_FROM_MSFTIME(p_sys->p_fp->i_play_duration), i_count) )
+            p_sys->i_length = 0;
+        p_sys->i_length = p_sys->i_length /
                    (vlc_tick_t)p_sys->p_fp->i_data_packets_count;
         if( p_sys->i_length <= p_sys->p_fp->i_preroll )
             p_sys->i_length = 0;

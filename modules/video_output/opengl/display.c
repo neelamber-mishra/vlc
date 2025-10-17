@@ -134,9 +134,7 @@ static void PlacePicture(vout_display_t *vd, vout_display_place_t *place,
 
     /* Copy the initial source, sine we might rotate it to fake a rotated
      * display also. */
-    video_format_t source;
-    video_format_Init(&source, 0);
-    video_format_Copy(&source, vd->source);
+    video_format_t source = *vd->source;
 
     video_transform_t transform = (video_transform_t)sys->gl->orientation;
     video_format_TransformBy(&source, transform_Inverse(transform));
@@ -161,20 +159,24 @@ static void PlacePicture(vout_display_t *vd, vout_display_place_t *place,
     }
     sys->place_changed = true;
 
-    video_format_Clean(&source);
+    assert(sys->gl->orientation != ORIENT_NORMAL || place->x == vd->place->x);
+    assert(sys->gl->orientation != ORIENT_NORMAL || place->y == (int)(vd->cfg->display.height - (vd->place->y + vd->place->height)));
 }
 
-static void UpdateConfig(vout_display_t *vd)
+static int SetDisplaySize(vout_display_t *vd, unsigned width, unsigned height)
 {
     vout_display_sys_t *sys = vd->sys;
+
     PlacePicture(vd, &sys->place, vd->cfg->display);
-    sys->place_changed = true;
+    vlc_gl_Resize (sys->gl, width, height);
+    return VLC_SUCCESS;
 }
 
 static int ChangeSourceProjection(vout_display_t *vd, video_projection_mode_t projection)
 {
+    VLC_UNUSED(projection);
     vout_display_sys_t *sys = vd->sys;
-    UpdateConfig(vd);
+    PlacePicture(vd, &sys->place, vd->cfg->display);
     sys->restart_renderer = true;
     return VLC_SUCCESS;
 }
@@ -182,7 +184,7 @@ static int ChangeSourceProjection(vout_display_t *vd, video_projection_mode_t pr
 static int SetStereoMode(vout_display_t *vd, vlc_stereoscopic_mode_t mode)
 {
     vout_display_sys_t *sys = vd->sys;
-    UpdateConfig(vd);
+    PlacePicture(vd, &sys->place, vd->cfg->display);
     sys->stereo.mode = mode;
     sys->stereo.changed = true;
     return VLC_SUCCESS;
@@ -192,6 +194,7 @@ static const struct vlc_display_operations ops = {
     .close = Close,
     .prepare = PictureRender,
     .display = PictureDisplay,
+    .set_display_size = SetDisplaySize,
     .control = Control,
     .set_viewpoint = SetViewpoint,
     .update_format = UpdateFormat,
@@ -219,7 +222,7 @@ static int Open(vout_display_t *vd,
     vlc_window_t *surface = vd->cfg->window;
     char *gl_name = var_InheritString(surface, MODULE_VARNAME);
 
-    /* VDPAU GL interop works only with GLX. Override the "gl" option to force
+    /* VDPAU/NVDEC GL interop works only with GLX. Override the "gl" option to force
      * it. */
 #ifndef USE_OPENGL_ES2
     if (surface->type == VLC_WINDOW_TYPE_XID)
@@ -227,6 +230,11 @@ static int Open(vout_display_t *vd,
         switch (vd->source->i_chroma)
         {
             case VLC_CODEC_VDPAU_VIDEO:
+            case VLC_CODEC_NVDEC_OPAQUE:
+            case VLC_CODEC_NVDEC_OPAQUE_10B:
+            case VLC_CODEC_NVDEC_OPAQUE_16B:
+            case VLC_CODEC_NVDEC_OPAQUE_444:
+            case VLC_CODEC_NVDEC_OPAQUE_444_16B:
             {
                 /* Force the option only if it was not previously set */
                 if (gl_name == NULL || gl_name[0] == 0
@@ -251,7 +259,6 @@ static int Open(vout_display_t *vd,
 
     struct vout_display_placement dp = vd->cfg->display;
     PlacePicture(vd, &sys->place, dp);
-    sys->place_changed = true;
     sys->stereo.changed = false;
     vlc_gl_Resize (sys->gl, vd->cfg->display.width, vd->cfg->display.height);
 
@@ -360,22 +367,11 @@ static int Control (vout_display_t *vd, int query)
 
     switch (query)
     {
-
-        case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
-            UpdateConfig(vd);
-            vlc_gl_Resize (sys->gl, vd->cfg->display.width, vd->cfg->display.height);
-            // fallthrough
         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
-        {
-            struct vout_display_placement dp = vd->cfg->display;
-
-            PlacePicture(vd, &sys->place, dp);
-            sys->place_changed = true;
-            UpdateConfig(vd);
+            PlacePicture(vd, &sys->place, vd->cfg->display);
             return VLC_SUCCESS;
-        }
 
         default:
             msg_Err (vd, "Unknown request %d", query);

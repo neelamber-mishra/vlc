@@ -214,9 +214,6 @@ T.Control {
     contentItem: Row {
         id: contentItemRow
 
-        leftPadding: VLCStyle.margin_xxxsmall
-        rightPadding: VLCStyle.margin_xxxsmall
-
         spacing: VLCStyle.column_spacing
 
         Repeater {
@@ -249,6 +246,7 @@ T.Control {
                             selected: Qt.binding(() => delegate.selected),
                             containsMouse: Qt.binding(() => delegate.hovered),
                             colorContext: Qt.binding(() => theme),
+                            delegate: delegate
                         }
                     )
                 }

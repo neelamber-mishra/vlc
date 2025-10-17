@@ -67,6 +67,12 @@ T.Control {
     Accessible.onPressAction: MainPlaylistController.togglePlayPause()
     Accessible.onToggleAction: MainPlaylistController.togglePlayPause()
 
+    // Tooltip
+
+    T.ToolTip.visible: (hovered || visualFocus)
+    T.ToolTip.delay: VLCStyle.delayToolTipAppear
+    T.ToolTip.text: root.Accessible.name
+
     // States
 
     states: [
@@ -235,25 +241,6 @@ T.Control {
         implicitWidth: height
         implicitHeight: VLCStyle.icon_medium
 
-        Widgets.DropShadowImage {
-            id: hoverShadow
-
-            anchors.centerIn: parent
-
-            visible: opacity > 0
-            opacity: 0
-
-            rectWidth: parent.width
-            rectHeight: parent.height
-            xRadius: parent.width
-            yRadius: xRadius
-
-            blurRadius: VLCStyle.dp(9)
-            yOffset: VLCStyle.dp(4)
-
-            color: theme.accent.alpha(0.29)
-        }
-
         Widgets.AnimatedBackground {
             anchors.fill: parent
             anchors.margins: -border.width
@@ -266,11 +253,23 @@ T.Control {
         Rectangle {
             anchors.fill: parent
 
-            radius: width
+            radius: width / 2
 
             gradient: Gradient {
                 GradientStop { position: 0.0; color: "#e25b01" }
                 GradientStop { position: 1.0; color: "#f89a06" }
+            }
+
+            Widgets.RoundedRectangleShadow {
+                id: hoverShadow
+
+                visible: opacity > 0
+                opacity: 0
+
+                blurRadius: VLCStyle.dp(9)
+                yOffset: VLCStyle.dp(4)
+
+                color: theme.accent.alpha(0.29)
             }
 
             Rectangle {
@@ -282,7 +281,7 @@ T.Control {
                 anchors.margins: _diminished ? (parent.width / 2)
                                              : VLCStyle.dp(2)
 
-                radius: width
+                radius: width / 2
 
                 property bool _diminished: false
 

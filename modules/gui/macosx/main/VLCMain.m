@@ -44,6 +44,8 @@
 #include <vlc_variables.h>
 #include <vlc_preparser.h>
 
+#include <Metal/Metal.h>
+
 #import "extensions/NSString+Helpers.h"
 
 #import "library/VLCLibraryController.h"
@@ -68,10 +70,13 @@
 #import "playqueue/VLCPlayQueueController.h"
 #import "playqueue/VLCPlayerController.h"
 #import "playqueue/VLCPlayQueueModel.h"
+#import "playqueue/VLCPlayQueueTableCellView.h"
 #import "playqueue/VLCPlaybackContinuityController.h"
 
 #import "preferences/prefs.h"
 #import "preferences/VLCSimplePrefsController.h"
+
+#import "views/VLCPlaybackEndViewController.h"
 
 #import "windows/VLCDetachedAudioWindow.h"
 #import "windows/VLCOpenWindowController.h"
@@ -81,6 +86,7 @@
 #import "windows/logging/VLCLogWindowController.h"
 #import "windows/video/VLCVoutView.h"
 #import "windows/video/VLCVideoOutputProvider.h"
+#import "windows/video/VLCMainVideoViewController.h"
 
 #ifdef HAVE_SPARKLE
 #import <Sparkle/Sparkle.h>                 /* we're the update delegate */
@@ -89,6 +95,8 @@ NSString *const kARM64UpdateURLString = @"https://update.videolan.org/vlc/sparkl
 #endif
 
 NSString *VLCConfigurationChangedNotification = @"VLCConfigurationChangedNotification";
+
+NSString * const kVLCPreferencesVersion = @"VLCPreferencesVersion";
 
 #pragma mark -
 #pragma mark Private extension
@@ -135,6 +143,7 @@ NSString *VLCConfigurationChangedNotification = @"VLCConfigurationChangedNotific
 
 static intf_thread_t *p_interface_thread;
 static vlc_preparser_t *p_network_preparser;
+vlc_sem_t g_wait_quit;
 
 intf_thread_t *getIntf()
 {
@@ -172,6 +181,7 @@ int OpenIntf (vlc_object_t *p_this)
             @try {
                 VLCApplication * const application = VLCApplication.sharedApplication;
                 NSCAssert(application != nil, @"VLCApplication must not be nil");
+                [application setIntf:p_intf];
 
                 VLCMain * const main = VLCMain.sharedInstance;
                 NSCAssert(main != nil, @"VLCMain must not be nil");
@@ -186,6 +196,7 @@ int OpenIntf (vlc_object_t *p_this)
             dispatch_semaphore_signal(sem);
             [NSApp run];
         }
+        vlc_sem_post(&g_wait_quit);
     });
     CFRunLoopWakeUp(CFRunLoopGetMain());
 
@@ -202,15 +213,24 @@ void CloseIntf (vlc_object_t *p_this)
             [VLCMain.sharedInstance applicationWillTerminate:nil];
             [VLCMain killInstance];
         }
-        p_interface_thread = nil;
-
         vlc_preparser_Delete(p_network_preparser);
-        p_network_preparser = nil;
+        [NSApp stop:nil];
+        NSEvent* event = [NSEvent otherEventWithType:NSApplicationDefined
+            location:NSMakePoint(0,0)
+            modifierFlags:0
+            timestamp:0.0
+            windowNumber:0
+            context:nil
+            subtype:0
+            data1:0
+            data2:0];
+        [NSApp postEvent:event atStart:YES];
     };
     if (CFRunLoopGetCurrent() == CFRunLoopGetMain())
         release_intf();
     else
         dispatch_sync(dispatch_get_main_queue(), release_intf);
+    vlc_sem_wait(&g_wait_quit);
 }
 
 /*****************************************************************************
@@ -282,6 +302,23 @@ static VLCMain *sharedInstance = nil;
 
 - (void)applicationWillFinishLaunching:(NSNotification *)aNotification
 {
+    // Only Metal shader in use at the moment is for holiday theming, so only load during this time.
+    // Change this if you are going to add new shaders!
+    if (((VLCApplication *)NSApplication.sharedApplication).winterHolidaysTheming) {
+        _metalDevice = MTLCreateSystemDefaultDevice();
+        NSString * const libraryPath =
+            [NSBundle.mainBundle pathForResource:@"Shaders" ofType:@"metallib"];
+        if (libraryPath) {
+            NSError *error = nil;
+            _metalLibrary = [_metalDevice newLibraryWithFile:libraryPath error:&error];
+            if (!_metalLibrary) {
+                NSLog(@"Error creating Metal library: %@", error);
+            }
+        } else {
+            NSLog(@"Error: Could not find Shaders.metallib in the bundle.");
+        }
+    }
+
     _clickerManager = [[VLCClickerManager alloc] init];
 
     [[NSBundle mainBundle] loadNibNamed:@"MainMenu" owner:_mainmenu topLevelObjects:nil];
@@ -308,9 +345,15 @@ static VLCMain *sharedInstance = nil;
     if (!_p_intf)
         return;
 
-    [self migrateOldPreferences];
+    NSUserDefaults * const defaults = NSUserDefaults.standardUserDefaults;
+    if ([defaults integerForKey:kVLCPreferencesVersion] != 4) {
+        [defaults setBool:YES forKey:VLCPlaybackEndViewEnabledKey];
+        [defaults setBool:NO forKey:VLCDisplayTrackNumberPlayQueueKey];
+        [defaults setBool:YES forKey:VLCUseClassicVideoPlayerLayoutKey];
+        [self migrateOldPreferences];
+    }
 
-    _statusBarIcon = [[VLCStatusBarIcon alloc] init];
+    _statusBarIcon = [[VLCStatusBarIcon alloc] init:_p_intf];
 
     /* on macOS 11 and later, check whether the user attempts to deploy
      * the x86_64 binary on ARM-64 - if yes, log it */

@@ -67,6 +67,9 @@ NativeMenu {
             "action": removeFavorite,
             "visible": _showRemoveFavorite
         }, {
+            "text": (root.showPlayAsAudioAction ? qsTr("Add to a video-only playlist") : qsTr("Add to an audio-only playlist")),
+            "action": (root.showPlayAsAudioAction ? root.addToVideoOnlyPlaylist : root.addToAudioOnlyPlaylist)
+        }, {
             "text": qsTr("Add to a playlist"),
             "action": addToAPlaylist
         }, {
@@ -89,7 +92,11 @@ NativeMenu {
             "text": qsTr("Information"),
             "action": _signalShowInformation,
             "visible": showInformationAvailable
-        }, {
+        },{
+            "text": qsTr("Delete File From System"),
+            "action": deleteFileFromSource,
+            "visible": _deleteFileFromSource
+        },{
             "text": qsTr("Media Information"),
             "action": function(dataList, options, indexes) {
                 DialogsProvider.mediaInfoDialog(dataList[0][idDataRole])
@@ -123,16 +130,27 @@ NativeMenu {
         model.ml.addToPlaylist(_mlIDList(dataList), _playerOptions(options))
     }
 
-    function addToAPlaylist(dataList, options, indexes) {
-        DialogsProvider.playlistsDialog(_mlIDList(dataList))
+    function addToAudioOnlyPlaylist(dataList, options, indexes) {
+        addToAPlaylist(dataList, options, indexes, MLPlaylistListModel.PLAYLIST_TYPE_AUDIO_ONLY)
+    }
+
+    function addToVideoOnlyPlaylist(dataList, options, indexes) {
+        addToAPlaylist(dataList, options, indexes, MLPlaylistListModel.PLAYLIST_TYPE_VIDEO_ONLY)
+    }
+
+    function addToAPlaylist(dataList, options, indexes, type) {
+        if (type === undefined)
+            type = MLPlaylistListModel.PLAYLIST_TYPE_ALL
+
+        DialogsProvider.playlistsDialog(_mlIDList(dataList), type)
     }
 
     function addFavorite(dataList, options, indexes) {
-        model.setItemFavorite(indexes[0], true)
+        model.setMediaIsFavorite(indexes[0], true)
     }
 
     function removeFavorite(dataList, options, indexes) {
-        model.setItemFavorite(indexes[0], false)
+        model.setMediaIsFavorite(indexes[0], false)
     }
 
     function markSeen(dataList, options, indexes) {
@@ -151,6 +169,15 @@ NativeMenu {
 
     function deleteStream(dataList, options, indexes) {
         model.deleteStream(dataList[0][idDataRole])
+    }
+
+    function deleteFileFromSource(dataList, options, indexes) {
+        let confirm = DialogsProvider.questionDialog(qsTr("Are you sure you want to delete this file?"));
+        
+        if (confirm) {
+            model.deleteFileFromSource(indexes[0]);
+            console.log("File Deleted !!");
+        }
     }
 
     function showInformationAvailable(dataList, options, indexes) {
@@ -192,6 +219,10 @@ NativeMenu {
 
     function _deleteStream(dataList,options, indexes) {
         return _checkRole(dataList, "isDeletable", true)
+    }
+
+    function _deleteFileFromSource(dataList, options, indexes) {
+        return  _checkRole(dataList, "isDeletableFile", true)
     }
 
     function _signalShowInformation(dataList, options) {

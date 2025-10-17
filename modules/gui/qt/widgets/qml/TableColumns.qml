@@ -35,6 +35,8 @@ Item {
     // NOTE: That's useful when we want to enforce a cover criteria for the titleDelegate.
     property string criteriaCover: "cover"
 
+    property int fillMode: Image.PreserveAspectFit
+
     property int titleCover_width: VLCStyle.trackListAlbumCover_width
     property int titleCover_height: VLCStyle.trackListAlbumCover_heigth
     property int titleCover_radius: VLCStyle.trackListAlbumCover_radius
@@ -108,10 +110,18 @@ Item {
 
                 fallbackImageSource: titleDel.colModel.placeHolder || VLCStyle.noArtAlbumCover
 
+                fillMode: root.fillMode
+
                 playCoverVisible: (titleDel.currentlyFocused || titleDel.containsMouse)
                 playIconSize: VLCStyle.play_cover_small
                 radius: root.titleCover_radius
                 color: titleDel.colorContext.bg.secondary
+
+                Component.onCompleted: {
+                    console.assert(titleDel.delegate)
+                    titleDel.delegate.ListView.reused.connect(cover.reinitialize)
+                    titleDel.delegate.ListView.pooled.connect(cover.releaseResources)
+                }
 
                 imageOverlay: Item {
                     width: cover.width
@@ -131,9 +141,7 @@ Item {
                 }
 
                 DefaultShadow {
-                    anchors.centerIn: parent
 
-                    sourceItem: parent
                 }
 
                 onPlayIconClicked: root.playClicked(titleDel.rowModel)

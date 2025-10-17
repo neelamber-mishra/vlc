@@ -34,6 +34,12 @@ Widgets.PageLoader {
 
     property var sortMenu
 
+    property int displayMarginBeginning: 0
+    property int displayMarginEnd: 0
+
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     // Settings
 
     pageModel: [{
@@ -43,9 +49,6 @@ Widgets.PageLoader {
     }, {
         name: "group",
         component: componentGroup
-    }, {
-        name: "recentVideos",
-        component: componentRecentVideos
     }]
 
     // Events
@@ -67,6 +70,12 @@ Widgets.PageLoader {
             }
 
             onCurrentIndexChanged: History.viewProp.initialIndex = currentIndex
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
+            enableBeginningFade: root.enableBeginningFade
+            enableEndFade: root.enableEndFade
         }
     }
 
@@ -81,17 +90,12 @@ Widgets.PageLoader {
             function isInfoExpandPanelAvailable(/* modelIndexData */) {
                 return true
             }
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
+            enableBeginningFade: root.enableBeginningFade
+            enableEndFade: root.enableEndFade
         }
     }
-
-    Component {
-        id: componentRecentVideos
-
-        VideoRecentVideosDisplay {
-            function isInfoExpandPanelAvailable(/* modelIndexData */) {
-                return true
-            }
-        }
-    }
-
 }

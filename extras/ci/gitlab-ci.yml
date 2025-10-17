@@ -21,10 +21,10 @@ default:
 variables:
     VLC_TEST_TIMEOUT: 60
     VLC_WIN64_IMAGE: registry.videolan.org/vlc-debian-win64-posix:20241118101328
-    VLC_WIN_LLVM_MSVCRT_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20241118101328
-    VLC_WIN_LLVM_UCRT_IMAGE: registry.videolan.org/vlc-debian-llvm-ucrt:20241118101328
+    VLC_WIN_LLVM_MSVCRT_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20250903131032
+    VLC_WIN_LLVM_UCRT_IMAGE: registry.videolan.org/vlc-debian-llvm-ucrt:20250903131032
     VLC_DEBIAN_IMAGE: registry.videolan.org/vlc-debian-unstable:20241112155431
-    VLC_ANDROID_IMAGE: registry.videolan.org/vlc-debian-android:20250403202200
+    VLC_ANDROID_IMAGE: registry.videolan.org/vlc-debian-android:20250626142950
     VLC_SNAP_IMAGE: registry.videolan.org/vlc-ubuntu-focal:20231013031754
     VLC_RASPBIAN_IMAGE: registry.videolan.org/vlc-ubuntu-raspberry:20240806085528
     VLC_WASM_EMSCRIPTEN: registry.videolan.org/vlc-debian-wasm-emscripten:20250207201514
@@ -270,12 +270,13 @@ debian-contrib:
     image:
         name: $VLC_DEBIAN_IMAGE
     rules:
-      - changes:
-        # should match get-contrib-sha.sh
-        - contrib/**/*
-        - contrib/*
-        - extras/tools/*
-        - extras/ci/*
+      - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+        changes:
+            # should match get-contrib-sha.sh
+            - contrib/**/*
+            - contrib/*
+            - extras/tools/*
+            - extras/ci/*
     script: |
         export NCPU=$(getconf _NPROCESSORS_ONLN)
         echo "Building branch '${CI_COMMIT_BRANCH}' (default: '${CI_DEFAULT_BRANCH}')"
@@ -513,8 +514,7 @@ raspbian-arm:
             EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} -p"
         fi
         export PATH="${VLC_PATH}:$PATH"
-        mkdir build && cd build
-        ../extras/package/macosx/build.sh $EXTRA_BUILD_FLAGS $NIGHTLY_EXTRA_BUILD_FLAGS -a $HOST_ARCH -x
+        ./extras/package/macosx/build.sh $EXTRA_BUILD_FLAGS $NIGHTLY_EXTRA_BUILD_FLAGS -a $HOST_ARCH -x
         # At least compile every targets
         make check TESTS=
 
@@ -536,8 +536,8 @@ macos-arm64:
         - if: '$CI_PIPELINE_SOURCE == "schedule"'
     after_script:
         - mkdir nightlies
-        - mv build/vlc-*.dmg nightlies/$(basename build/vlc-*.dmg | sed "s/\.dmg/-${SHORTARCH}-${CI_COMMIT_SHORT_SHA}\.dmg/")
-        - mv build/vlc-*.tar.gz nightlies/$(basename build/vlc-*.tar.gz | sed "s/\.tar\.gz/-${SHORTARCH}-${CI_COMMIT_SHORT_SHA}\.tar\.gz/")
+        - mv vlc-*.dmg nightlies/$(basename vlc-*.dmg | sed "s/\.dmg/-${SHORTARCH}-${CI_COMMIT_SHORT_SHA}\.dmg/")
+        - mv vlc-*.tar.gz nightlies/$(basename vlc-*.tar.gz | sed "s/\.tar\.gz/-${SHORTARCH}-${CI_COMMIT_SHORT_SHA}\.tar\.gz/")
         - cd nightlies && find . -maxdepth 1 -type f -not -name SHA512SUM | xargs shasum -a 512 | tee SHA512SUM
     artifacts:
         paths:
@@ -617,7 +617,7 @@ xros-arm64:
         name: $VLC_ANDROID_IMAGE
     script: |
         git clone https://code.videolan.org/videolan/libvlcjni.git
-        (cd libvlcjni && git checkout 5e2b2af821d14738bc470414a8d0c72d9955d168)
+        (cd libvlcjni && git checkout e90807431330d949b855b37695b9004af6b00bd9)
         if [ -n "$VLC_PREBUILT_CONTRIBS_URL" ]; then
           CONTRIB_FLAGS="--with-prebuilt-contribs"
         elif [ "${CI_COMMIT_BRANCH}" = "${CI_DEFAULT_BRANCH}" -a "${CI_PROJECT_PATH}" = "videolan/vlc" ]; then

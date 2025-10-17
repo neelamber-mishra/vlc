@@ -16,6 +16,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Templates as T
 import QtQml.Models
@@ -32,6 +33,9 @@ FocusScope {
     id: root
 
     // Properties
+
+    property bool _initialized: false
+    property bool _resetFocusPendingAfterInitialization: false
 
     property int leftPadding: 0
     property int rightPadding: 0
@@ -69,8 +73,24 @@ FocusScope {
 
     focus: true
 
-    Component.onCompleted: resetFocus()
-    onActiveFocusChanged: resetFocus()
+
+    Component.onCompleted: {
+        _initialized = true
+        if (_resetFocusPendingAfterInitialization) {
+            resetFocus()
+
+            _resetFocusPendingAfterInitialization = false
+        }
+    }
+
+    onActiveFocusChanged: {
+        if (!_initialized) {
+            _resetFocusPendingAfterInitialization = true
+            return
+        }
+
+        resetFocus()
+    }
 
     function setCurrentItemFocus(reason) {
         if (foldersSection.visible)
@@ -79,34 +99,6 @@ FocusScope {
             deviceSection.setCurrentItemFocus(reason);
         else if (lanSection.visible)
             lanSection.setCurrentItemFocus(reason);
-    }
-
-    function _centerFlickableOnItem(item) {
-        if (item.activeFocus === false)
-            return
-
-        let minY
-        let maxY
-
-        const index = item.currentIndex
-
-        // NOTE: We want to include the header when we're on the first row.
-        if ((MainCtx.gridView && index < item.nbItemPerRow) || index < 1) {
-            minY = item.y
-
-            maxY = minY + item.getItemY(index) + item.rowHeight
-        } else {
-            minY = item.y + item.getItemY(index)
-
-            maxY = minY + item.rowHeight
-        }
-
-        // TODO: We could implement a scrolling animation like in ExpandGridView.
-        if (maxY > flickable.contentY + flickable.height) {
-            flickable.contentY = maxY - flickable.height
-        } else if (minY < flickable.contentY) {
-            flickable.contentY = minY
-        }
     }
 
     readonly property ColorContext colorContext: ColorContext {
@@ -142,8 +134,25 @@ FocusScope {
 
         focus: true
 
+        pixelAligned: (MainCtx.qtVersion() >= MainCtx.qtVersionCheck(6, 2, 5)) // QTBUG-103996
+                      && (Screen.pixelDensity >= VLCStyle.highPixelDensityThreshold) // no need for sub-pixel alignment with high pixel density
+
         contentWidth: column.width
         contentHeight: column.height
+
+        // This behavior allows to have similar "smooth" animation
+        // that Qt views have with `highlightFollowsCurrentItem`.
+        Behavior on contentY {
+            id: contentYBehavior
+
+            enabled: false
+
+            // NOTE: Usage of `SmoothedAnimation` is intentional here.
+            SmoothedAnimation {
+                duration: VLCStyle.duration_veryLong
+                easing.type: Easing.InOutSine
+            }
+        }
 
         DefaultFlickableScrollHandler { }
 
@@ -174,8 +183,8 @@ FocusScope {
             width: flickable.width
             height: implicitHeight
 
-            spacing: (MainCtx.gridView ? VLCStyle.gridView_spacing : VLCStyle.tableView_spacing) -
-                     VLCStyle.layoutTitle_top_padding
+            spacing: 0 // relied on the generous padding of ViewHeader instead
+            bottomPadding: VLCStyle.margin_normal // topPadding taken care by ViewHeader
 
             Navigation.parentItem: root
 
@@ -256,20 +265,20 @@ FocusScope {
     }
 
     function resetFocus() {
+        if (!activeFocus)
+            return
+
         for (let i = 0; i < column.count; ++i) {
             const widget = column.itemAt(i)
             if (widget.activeFocus && widget.visible)
                 return
         }
 
-        let found  = false;
         for (let i = 0; i < column.count; ++i){
             const widget = column.itemAt(i)
-            if (widget.visible && !found) {
-                widget.focus = true
-                found = true
-            } else {
-                widget.focus = false
+            if (widget.visible) {
+                Helpers.transferFocus(widget, Qt.TabFocusReason)
+                break
             }
         }
     }
@@ -282,10 +291,35 @@ FocusScope {
 
         visible: (model.count !== 0)
 
+        interactive: false
+
+        enableBeginningFade: false
+        enableEndFade: false
+
+        // FIXME: ExpandGridView makes this page completely unusable when `reuseItems` is set (#29084):
+        reuseItems: !MainCtx.gridView
+
         onBrowse: (tree, reason) => root.browse(tree, reason)
         onSeeAll: (reason) => root.seeAllDevices(title, model.sd_source, reason)
 
-        onActiveFocusChanged: _centerFlickableOnItem(this)
-        onCurrentIndexChanged: _centerFlickableOnItem(this)
+        onActiveFocusChanged: {
+            if (activeFocus) {
+                const item = _currentView?.currentItem ?? _currentView?._getItem(currentIndex) // FIXME: `ExpandGridView` does not have `currentItem`.
+                contentYBehavior.enabled = true
+                Helpers.positionFlickableToContainItem(flickable, item ?? this)
+                contentYBehavior.enabled = false
+            }
+        }
+
+        onCurrentIndexChanged: {
+            if (activeFocus) {
+                const item = _currentView?.currentItem ?? _currentView?._getItem(currentIndex) // FIXME: `ExpandGridView` does not have `currentItem`.
+                if (item) {
+                    contentYBehavior.enabled = true
+                    Helpers.positionFlickableToContainItem(flickable, item)
+                    contentYBehavior.enabled = false
+                }
+            }
+        }
     }
 }

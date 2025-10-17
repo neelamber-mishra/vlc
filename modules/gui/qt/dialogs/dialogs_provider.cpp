@@ -67,6 +67,7 @@
 #include <QUrl>
 #include <QInputDialog>
 #include <QPointer>
+#include <QMessageBox>
 
 #define I_OP_DIR_WINTITLE I_DIR_OR_FOLDER( N_("Open Directory"), \
                                            N_("Open Folder") )
@@ -157,8 +158,8 @@ void DialogsProvider::customEvent( QEvent *event )
             //FIXME
             //playlistDialog(); break;
             break;
-        case INTF_DIALOG_PLAYLISTS:
-            playlistsDialog(); break;
+        // case INTF_DIALOG_PLAYLISTS:
+        // FIXME: `intf_dialog_args_t` is not supported by `PlaylistsDialog`.
         case INTF_DIALOG_MESSAGES:
             messagesDialog(); break;
         case INTF_DIALOG_FILEINFO:
@@ -401,6 +402,22 @@ void DialogsProvider::mediaInfoDialog( const MLItemId& itemId )
     }
 }
 
+bool DialogsProvider::questionDialog(const QString& text, const QString &title) const
+{
+    QMessageBox messageBox;
+    messageBox.setText(text);
+    if (!title.isEmpty())
+        messageBox.setWindowTitle(title);
+    messageBox.setIcon(QMessageBox::Question);
+    messageBox.setStandardButtons(QMessageBox::StandardButtons(QMessageBox::Yes | QMessageBox::No));
+    messageBox.setDefaultButton(QMessageBox::No);
+
+    QVLCDialog::setWindowTransientParent(&messageBox, nullptr, p_intf);
+
+    int result = messageBox.exec();
+    return result == QMessageBox::Yes;
+}
+
 void DialogsProvider::mediaCodecDialog()
 {
     ensureDialog(m_mediaInfoDialog);
@@ -411,21 +428,11 @@ void DialogsProvider::mediaCodecDialog()
         m_mediaInfoDialog->hide();
 }
 
-void DialogsProvider::playlistsDialog()
+void DialogsProvider::playlistsDialog( const QVariantList & medias, MLPlaylistListModel::PlaylistType type )
 {
-    toggleDialogVisible(m_playlistDialog);
-}
-
-void DialogsProvider::playlistsDialog( const QVariantList & medias )
-{
-    ensureDialog(m_playlistDialog);
-
-    m_playlistDialog->setMedias(medias);
-
-    m_playlistDialog->show();
-
-    // FIXME: We shouldn't have to call this on here.
-    m_playlistDialog->activateWindow();
+    const auto dialog = new PlaylistsDialog(p_intf, medias, type);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show(); // "Modeless dialogs are displayed using show()"
 }
 
 void DialogsProvider::bookmarksDialog()
@@ -490,7 +497,7 @@ void DialogsProvider::openFileGenericDialog( intf_dialog_args_t *p_arg )
         {
             p_arg->i_results = 1;
             p_arg->psz_results = (char **)vlc_alloc( p_arg->i_results, sizeof( char * ) );
-            p_arg->psz_results[0] = strdup( qtu( toNativeSepNoSlash( file ) ) );
+            p_arg->psz_results[0] = strdup( qtu( toNativeSepNoSlash( std::move(file) ) ) );
         }
         else
             p_arg->i_results = 0;

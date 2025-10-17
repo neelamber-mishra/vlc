@@ -24,7 +24,9 @@
 #ifndef COMMONATTRIBUTESELEMENTS_H
 #define COMMONATTRIBUTESELEMENTS_H
 
+#include "../tools/Compatibility.hpp"
 #include "../tools/Properties.hpp"
+#include "../tools/Macros.hpp"
 #include <string>
 
 namespace adaptive
@@ -33,6 +35,8 @@ namespace adaptive
     {
         class CommonAttributesElements
         {
+            PREREQ_VIRTUAL(CommonAttributesElements);
+
             public:
                 CommonAttributesElements(CommonAttributesElements * = nullptr);
                 virtual ~CommonAttributesElements();

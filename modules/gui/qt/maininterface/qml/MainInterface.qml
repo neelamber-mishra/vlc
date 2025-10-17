@@ -25,9 +25,6 @@ import QtQuick.Layouts
 import QtQuick.Templates
 import QtQuick.Controls
 import QtQuick.Window
-import QtQuick.Effects // Unconditionally available, dummy if Qt version is less than 6.5.0
-import Qt5Compat.GraphicalEffects // Unconditionally available, dummy if Qt version is equal to or greater than 6.5.0
-
 
 import VLC.MainInterface
 import VLC.Widgets as Widgets
@@ -171,10 +168,7 @@ Item {
                     MainPlaylistController.stop()
 
                 if (History.previousEmpty) {
-                    if (MainCtx.mediaLibraryAvailable)
-                        History.update(["mc", "video"])
-                    else
-                        History.update(["mc", "home"])
+                    History.update(["mc", "home"])
                     loadCurrentHistoryView(Qt.OtherFocusReason)
                 } else
                     History.previous()
@@ -322,34 +316,24 @@ Item {
 
     //draw the window drop shadow ourselve when the windowing system doesn't
     //provide them but support extended frame
-    Widgets.RectangularGlow {
+    Widgets.RoundedRectangleShadow {
         id: effect
-        z: -1
+        parent: g_mainInterface
         hollow: Window.window && (Window.window.color.a < 1.0) // the interface may be translucent if the window has backdrop blur
         blending: false // stacked below everything, no need for blending even though it is not opaque
         visible: _extendedFrameVisible && !MainCtx.platformHandlesShadowsWithCSD()
-        anchors.fill: g_mainInterface
-        spread: 0.0
-        color: "black"
         opacity:  0.5
-        cornerRadius: glowRadius
-        states: [
-            State {
-                when: MainCtx.intfMainWindow.active
-                PropertyChanges {
-                    target: effect
-                    glowRadius: MainCtx.windowExtendedMargin * 0.7
-                }
-            },
-            State {
-                when: !MainCtx.intfMainWindow.active
-                PropertyChanges {
-                    target: effect
-                    glowRadius: MainCtx.windowExtendedMargin * 0.5
-                }
-            }
-        ]
-        Behavior on  glowRadius {
+
+        // Blur radius can not be greater than (margin / compensationFactor), as in that case it would need bigger
+        // size than the window to compensate. If you want bigger blur radius, either decrease the compensation
+        // factor which can lead to visible clipping, or increase the window extended margin:
+        property real activeBlurRadius: (MainCtx.windowExtendedMargin / effect.compensationFactor)
+
+        blurRadius: MainCtx.intfMainWindow.active ? activeBlurRadius
+                                                  : (activeBlurRadius / 2.0)
+
+        Behavior on blurRadius {
+            // FIXME: Use UniformAnimator instead
             NumberAnimation {
                 duration: VLCStyle.duration_veryShort
             }

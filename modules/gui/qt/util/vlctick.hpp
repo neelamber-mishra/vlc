@@ -25,6 +25,7 @@
 #include <QObject>
 #include <vlc_common.h>
 #include <vlc_tick.h>
+#include <QtQml/qqmlregistration.h>
 
 class VLCTick
 {
@@ -35,12 +36,7 @@ public:
     };
     Q_ENUM(FormatFlag)
 
-    VLCTick();
-    VLCTick(vlc_tick_t ticks);
-
-    operator vlc_tick_t() const;
-
-    Q_INVOKABLE bool valid() const;
+    Q_INVOKABLE virtual bool valid() const = 0;
 
     Q_INVOKABLE bool isSubSecond() const;
 
@@ -79,17 +75,76 @@ public:
      */
     Q_INVOKABLE QString formatShort(int formatFlags = SubSecondFormattedAsMS) const;
 
-
-    Q_INVOKABLE VLCTick scale(float) const;
+    inline vlc_tick_t toVLCTick() const {
+        return m_ticks;
+    }
 
     Q_INVOKABLE int toMinutes() const;
     Q_INVOKABLE int toSeconds() const;
     Q_INVOKABLE int toHours()   const;
+    int toMilliseconds() const;
 
+protected:
+    VLCTick(vlc_tick_t ticks);
+    VLCTick() = delete;
 
-    static VLCTick fromMS(int64_t ms);
-private:
+    virtual int64_t asMilliseconds() const = 0;
+    virtual int64_t asSeconds() const = 0;
+
     vlc_tick_t m_ticks;
 };
+
+class VLCDuration : public VLCTick
+{
+    Q_GADGET
+    QML_VALUE_TYPE(vlcDuration)
+
+public:
+    VLCDuration();
+    VLCDuration(vlc_tick_t);
+
+    VLCDuration operator*(double) const;
+    bool operator==(const VLCDuration &) const;
+    bool operator>(const VLCDuration &) const;
+
+    double toSecf() const;
+
+    Q_INVOKABLE VLCDuration scale(float) const;
+
+    static VLCDuration fromMS(int64_t ms);
+
+    int64_t asMilliseconds() const override;
+    int64_t asSeconds() const override;
+    bool valid() const override;
+};
+
+class VLCTime : public VLCTick
+{
+    Q_GADGET
+    QML_VALUE_TYPE(vlcTime)
+public:
+    VLCTime();
+    VLCTime(vlc_tick_t);
+    VLCTime(VLCDuration);
+    VLCDuration operator-(const VLCTime &rhs) const;
+    bool operator<=(const VLCTime &) const;
+
+    Q_INVOKABLE VLCTime scale(float) const;
+
+    int64_t asMilliseconds() const override;
+    int64_t asSeconds() const override;
+    bool valid() const override;
+};
+
+//following boilerplate allow registering FormatFlag enum in the VLCTick namespace in QML
+//VLCTick is not a QML_VALUE_TYPE so we don't need to define a distinct type to
+//register it in the namespace
+
+namespace VLCTickForeign
+{
+    Q_NAMESPACE
+    QML_NAMED_ELEMENT(VLCTick)
+    QML_FOREIGN_NAMESPACE(VLCTick)
+}
 
 #endif // VLCTICK_HPP

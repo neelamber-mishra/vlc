@@ -57,8 +57,14 @@ T.Pane {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-
+    Navigation.parentItem: view
     Navigation.navigable: button.visible
+
+    Component.onCompleted: {
+        // Qt Quick Pane sets a cursor for itself, unset it so that if the view has
+        // busy cursor, it is visible over the header:
+        MainCtx.unsetCursor(this)
+    }
 
     // Children
 
@@ -93,6 +99,11 @@ T.Pane {
             Layout.preferredWidth: implicitWidth
 
             focus: true
+
+            Binding on focusReason {
+                // NOTE: This is an explicit binding so that it does not get overridden:
+                value: root.focusReason
+            }
 
             text: qsTr("See All")
 

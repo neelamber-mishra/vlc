@@ -18,48 +18,17 @@
 
 import QtQuick
 
-import VLC.Style
-import VLC.Util
 import VLC.Widgets as Widgets
 
 // This item can be used as a layer effect.
 // Make sure that the sampler name is set to "source" (default).
-Widgets.BlurEffect {
+Widgets.DualKawaseBlur {
     id: root
 
-    radius: 64
+    radius: 3
 
-    property color tint: "transparent"
-    property real tintStrength: Qt.colorEqual(tint, "transparent") ? 0.0 : 0.7
-    property real noiseStrength: 0.02
-
-    // Have a semi-opaque filter blended with the source.
-    // This is intended to act as both colorization (tint),
-    // and exclusion effects.
-    Rectangle {
-        id: filter
-
-        // Underlay for the blur effect:
-        parent: root.source?.sourceItem ?? root.source
-        anchors.fill: parent
-        z: 999
-
-        visible: root.tintStrength > 0.0
-
-        color: Qt.alpha(root.tint, root.tintStrength)
-    }
-
-    ShaderEffect {
-        id: noise
-
-        // Overlay for the blur effect:
-        anchors.fill: parent
-        z: 999
-
-        visible: root.noiseStrength > 0.0
-
-        readonly property real strength: root.noiseStrength
-
-        fragmentShader: "qrc:///shaders/Noise.frag.qsb"
-    }
+    postprocess: true
+    tintStrength: Qt.colorEqual(tint, "transparent") ? 0.0 : 0.7
+    noiseStrength: 0.02
+    exclusionStrength: 0.09
 }

@@ -214,8 +214,7 @@ Add( sout_stream_t *p_stream, const es_format_t *p_fmt, const char *es_id )
     p_owner->p_stream = p_stream;
     p_owner->vctx = NULL;
 
-    p_owner->dec.p_module =
-        module_need_var( &p_owner->dec, "video decoder", "codec" );
+    decoder_LoadModule( &p_owner->dec, false, true );
 
     if( p_owner->dec.p_module == NULL )
     {
@@ -274,8 +273,8 @@ Add( sout_stream_t *p_stream, const es_format_t *p_fmt, const char *es_id )
 
     msg_Dbg( p_stream, "mosaic bridge id=%s pos=%d", p_es->psz_id, i );
 
-    return p_owner;
     (void)es_id;
+    return p_owner;
 }
 
 static void Del( sout_stream_t *p_stream, void *id )
@@ -642,6 +641,7 @@ static int Open( vlc_object_t *p_this )
         if ( vlc_fourcc_GetChromaDescription( p_sys->i_chroma ) == NULL )
         {
             msg_Err( p_stream, "Unknown chroma" );
+            free( val.psz_string );
             free( p_sys );
             return VLC_EINVAL;
         }

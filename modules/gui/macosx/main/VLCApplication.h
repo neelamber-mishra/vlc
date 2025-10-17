@@ -25,6 +25,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+typedef struct intf_thread_t intf_thread_t;
+
 /*****************************************************************************
  * VLCApplication interface
  *****************************************************************************/
@@ -43,5 +45,7 @@
  * Must be called from the main thread only.
  */
 @property(strong, readonly) NSImage *vlcAppIconImage;
+@property(assign, readonly) BOOL winterHolidaysTheming;
 
+- (void)setIntf:(intf_thread_t *)intf;
 @end

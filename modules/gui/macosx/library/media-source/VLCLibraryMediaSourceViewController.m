@@ -28,17 +28,27 @@
 
 #import "extensions/NSFont+VLCAdditions.h"
 #import "extensions/NSString+Helpers.h"
+#import "extensions/NSTextField+VLCAdditions.h"
 #import "extensions/NSWindow+VLCAdditions.h"
 
 #import "library/VLCLibraryCollectionView.h"
 #import "library/VLCLibraryCollectionViewFlowLayout.h"
 #import "library/VLCLibraryCollectionViewItem.h"
 #import "library/VLCLibraryController.h"
+#import "library/VLCInputNodePathControl.h"
 #import "library/VLCLibrarySegment.h"
 #import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
 
 #import "main/VLCMain.h"
+
+@interface VLCLibraryMediaSourceViewController ()
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+@property (readonly) NSGlassEffectView *pathControlGlassEffectView API_AVAILABLE(macos(26.0));
+#endif
+
+@end
 
 @implementation VLCLibraryMediaSourceViewController
 
@@ -47,11 +57,11 @@
     self = [super initWithLibraryWindow:libraryWindow];
     if (self) {
         [self setupPropertiesFromLibraryWindow:libraryWindow];
+        [self setupPathControlView];
         [self setupBaseDataSource];
         [self setupCollectionView];
         [self setupMediaSourceLibraryViews];
         [self setupPlaceholderLabel];
-        [self setupPathControlView];
 
         NSNotificationCenter * const defaultCenter = NSNotificationCenter.defaultCenter;
         [defaultCenter addObserver:self 
@@ -64,6 +74,15 @@
                             object:nil];
     }
     return self;
+}
+
+- (void)dealloc
+{
+    if (@available(macOS 26.0, *)) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+        [self.pathControlGlassEffectView removeFromSuperview];
+#endif
+    }
 }
 
 - (void)setupPropertiesFromLibraryWindow:(VLCLibraryWindow *)libraryWindow
@@ -88,7 +107,7 @@
     _baseDataSource.collectionViewScrollView = _collectionViewScrollView;
     _baseDataSource.homeButton = _homeButton;
     _baseDataSource.pathControl = _pathControl;
-    _baseDataSource.pathControlVisualEffectView = _pathControlVisualEffectView;
+    _baseDataSource.pathControlContainerView = self.pathControlContainerView;
     _baseDataSource.tableView = _tableView;
     _baseDataSource.tableViewScrollView = _tableViewScrollView;
     [_baseDataSource setupViews];
@@ -119,27 +138,15 @@
     _collectionViewScrollView.automaticallyAdjustsContentInsets = NO;
     _collectionViewScrollView.contentInsets = defaultInsets;
     _collectionViewScrollView.scrollerInsets = scrollerInsets;
-
-    _tableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _tableViewScrollView.contentInsets = defaultInsets;
-    _tableViewScrollView.scrollerInsets = scrollerInsets;
 }
 
 - (void)setupPlaceholderLabel
 {
-    if (@available(macOS 10.12, *)) {
-        _browsePlaceholderLabel = [NSTextField labelWithString:_NS("No files")];
-    } else {
-        _browsePlaceholderLabel = [[NSTextField alloc] init];
-        self.browsePlaceholderLabel.stringValue = _NS("No files");
-        self.browsePlaceholderLabel.editable = NO;
-    }
+    _browsePlaceholderLabel = [NSTextField defaultLabelWithString:_NS("No files")];
     self.browsePlaceholderLabel.font = NSFont.VLClibrarySectionHeaderFont;
     self.browsePlaceholderLabel.textColor = NSColor.secondaryLabelColor;
     self.browsePlaceholderLabel.alignment = NSTextAlignmentCenter;
-    self.browsePlaceholderLabel.backgroundColor = NSColor.clearColor;
-    self.browsePlaceholderLabel.bezeled = NO;
-    self.browsePlaceholderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.browsePlaceholderLabel.drawsBackground = NO;
     [self.mediaSourceView addSubview:self.browsePlaceholderLabel];
     [self.mediaSourceView addConstraints:@[
         [self.browsePlaceholderLabel.centerXAnchor constraintEqualToAnchor:self.mediaSourceView.centerXAnchor],
@@ -150,20 +157,56 @@
 
 - (void)setupPathControlView
 {
-    _pathControlViewTopConstraintToSuperview = [NSLayoutConstraint constraintWithItem:self.pathControlVisualEffectView
-                                                                                    attribute:NSLayoutAttributeTop
-                                                                                    relatedBy:NSLayoutRelationEqual
-                                                                                       toItem:self.mediaSourceView
-                                                                                    attribute:NSLayoutAttributeTop
-                                                                                   multiplier:1.
-                                                                                     constant:self.libraryWindow.titlebarHeight];
-    [self.mediaSourceView addConstraint:_pathControlViewTopConstraintToSuperview];
+    if (@available(macOS 26.0, *)) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+        NSButton * const homeButton = self.homeButton;
+        VLCInputNodePathControl * const pathControl = self.pathControl;
+        pathControl.translatesAutoresizingMaskIntoConstraints = NO;
+        const CGFloat pathControlHeight = pathControl.frame.size.height;
+        
+        _pathControlGlassEffectView = [[NSGlassEffectView alloc] initWithFrame:self.pathControlVisualEffectView.frame];
+        self.pathControlGlassEffectView.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.pathControlVisualEffectView removeFromSuperview];
+        [self.mediaSourceView addSubview:self.pathControlGlassEffectView];
+
+        _pathControlViewTopConstraintToSuperview =
+            [self.pathControlGlassEffectView.topAnchor constraintEqualToAnchor:self.mediaSourceView.topAnchor constant:self.libraryWindow.titlebarHeight];
+        [NSLayoutConstraint activateConstraints:@[
+            [self.pathControlGlassEffectView.leadingAnchor constraintEqualToAnchor:self.mediaSourceView.leadingAnchor constant:VLCLibraryUIUnits.smallSpacing],
+            [self.pathControlGlassEffectView.trailingAnchor constraintEqualToAnchor:self.mediaSourceView.trailingAnchor constant:-VLCLibraryUIUnits.smallSpacing],
+            [self.pathControlGlassEffectView.heightAnchor constraintEqualToConstant:pathControlHeight + (VLCLibraryUIUnits.smallSpacing * 2)],
+        ]];
+        NSView * const pathControlContainer = [[NSView alloc] initWithFrame:pathControl.frame];
+        [pathControlContainer addSubview:homeButton];
+        [pathControlContainer addSubview:pathControl];
+        [NSLayoutConstraint activateConstraints:@[
+            [homeButton.leadingAnchor constraintEqualToAnchor:pathControlContainer.leadingAnchor constant:VLCLibraryUIUnits.smallSpacing],
+            [homeButton.centerYAnchor constraintEqualToAnchor:pathControlContainer.centerYAnchor],
+            [pathControl.leadingAnchor constraintEqualToAnchor:homeButton.trailingAnchor constant:VLCLibraryUIUnits.smallSpacing],
+            [pathControl.trailingAnchor constraintEqualToAnchor:pathControlContainer.trailingAnchor constant:-VLCLibraryUIUnits.smallSpacing],
+            [pathControl.centerYAnchor constraintEqualToAnchor:pathControlContainer.centerYAnchor],
+        ]];
+        self.pathControlGlassEffectView.contentView = pathControlContainer;
+#endif
+    } else {
+        _pathControlViewTopConstraintToSuperview =
+            [self.pathControlVisualEffectView.topAnchor constraintEqualToAnchor:self.mediaSourceView.topAnchor constant:self.libraryWindow.titlebarHeight];
+    }
     _pathControlViewTopConstraintToSuperview.active = YES;
 }
 
 - (void)updatePlaceholderLabel:(NSNotification *)notification
 {
     self.browsePlaceholderLabel.hidden = self.mediaSourceTableView.numberOfRows > 0;
+}
+
+- (NSView *)pathControlContainerView
+{
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+    if (@available(macOS 26.0, *))
+        return self.pathControlGlassEffectView;
+#endif
+    return self.pathControlVisualEffectView;
 }
 
 - (void)presentBrowseView

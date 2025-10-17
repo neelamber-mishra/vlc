@@ -1,13 +1,13 @@
 # FFmpeg
 
 FFMPEG_HASH=ec47a3b95f88fc3f820b900038ac439e4eb3fede
-FFMPEG_MAJVERSION := 7.1
+FFMPEG_MAJVERSION := 7.1.2
 FFMPEG_REVISION := 0
 # FFMPEG_VERSION := $(FFMPEG_MAJVERSION).$(FFMPEG_REVISION)
 FFMPEG_VERSION := $(FFMPEG_MAJVERSION)
 FFMPEG_BRANCH=release/$(FFMPEG_MAJVERSION)
 FFMPEG_URL := https://ffmpeg.org/releases/ffmpeg-$(FFMPEG_VERSION).tar.xz
-FFMPEG_GITURL := $(VIDEOLAN_GIT)/ffmpeg.git
+FFMPEG_GITURL := https://code.ffmpeg.org/FFmpeg/FFmpeg.git
 FFMPEG_LAVC_MIN := 57.37.100
 
 FFMPEG_BASENAME := $(subst .,_,$(subst \,_,$(subst /,_,$(FFMPEG_HASH))))
@@ -137,7 +137,13 @@ endif
 
 # Darwin
 ifdef HAVE_DARWIN_OS
-FFMPEGCONF += --arch=$(ARCH) --target-os=darwin --extra-cflags="$(CFLAGS)"
+ifeq ($(ARCH),arm64_32)
+# TODO remove when FFMpeg supports arm64_32
+FFMPEGCONF += --arch=aarch64_32
+else
+FFMPEGCONF += --arch=$(ARCH)
+endif
+FFMPEGCONF += --target-os=darwin --extra-cflags="$(CFLAGS)"
 FFMPEGCONF += --disable-lzma
 ifeq ($(ARCH),x86_64)
 FFMPEGCONF += --cpu=core2

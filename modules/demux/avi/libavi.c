@@ -63,12 +63,13 @@ static int AVI_ChunkReadCommon( stream_t *s, avi_chunk_t *p_chk,
 {
     const uint8_t *p_peek;
 
-    memset( p_chk, 0, sizeof( avi_chunk_t ) );
+    AVI_ChunkInit( p_chk );
 
     const uint64_t i_pos = vlc_stream_Tell( s );
     if( vlc_stream_Peek( s, &p_peek, 8 ) < 8 )
     {
-        if( stream_Size( s ) > 0 && (uint64_t) stream_Size( s ) > i_pos )
+        uint64_t i_size;
+        if( vlc_stream_GetSize( s, &i_size ) == VLC_SUCCESS && i_size > i_pos )
             msg_Warn( s, "can't peek at %"PRIu64, i_pos );
         else
             msg_Dbg( s, "no more data at %"PRIu64, i_pos );
@@ -522,7 +523,7 @@ static int AVI_ChunkRead_strf( stream_t *s, avi_chunk_t *p_chk )
                 if ( !p_chk->strf.vids.p_bih->biClrUsed )
                 {
                     if( p_chk->strf.vids.p_bih->biBitCount < 32 )
-                        p_chk->strf.vids.p_bih->biClrUsed = (1 << p_chk->strf.vids.p_bih->biBitCount);
+                        p_chk->strf.vids.p_bih->biClrUsed = (UINT32_C(1) << p_chk->strf.vids.p_bih->biBitCount);
                     else
                         p_chk->strf.vids.p_bih->biBitCount = UINT16_MAX;
                 }
@@ -1060,9 +1061,14 @@ void AVI_ChunkClean( stream_t *s,
         msg_Warn( s, "unknown chunk: %4.4s (not unloaded)",
                 (char*)&p_chk->common.i_chunk_fourcc );
     }
-    p_chk->common.p_first = NULL;
+    AVI_ChunkInit( p_chk );
 
     return;
+}
+
+void AVI_ChunkInit( avi_chunk_t *p_chk )
+{
+    memset( p_chk, 0, sizeof(*p_chk) );
 }
 
 static void AVI_ChunkDumpDebug_level( vlc_object_t *p_obj,
@@ -1159,7 +1165,8 @@ int AVI_ChunkReadRoot( stream_t *s, avi_chunk_t *p_root )
         }
     }
 
-    p_list->i_chunk_size = stream_Size( s );
+    if( vlc_stream_GetSize( s, &p_list->i_chunk_size ) != VLC_SUCCESS )
+        p_list->i_chunk_size = 0;
 
     AVI_ChunkDumpDebug_level( VLC_OBJECT(s), p_root, 0 );
     return VLC_SUCCESS;

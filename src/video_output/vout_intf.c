@@ -126,7 +126,7 @@ static const struct
 static const struct
 {
     char psz_value[8];
-    char psz_label[8];
+    char psz_label[12];
 } p_aspect_ratio_values[] = {
     { "", N_("Default") },
     { "16:9", "16:9" },
@@ -137,6 +137,7 @@ static const struct
     { "235:100", "2.35:1" },
     { "239:100", "2.39:1" },
     { "5:4", "5:4" },
+    { "fill", N_("Fill Window") },
 };
 
 static const struct
@@ -610,16 +611,19 @@ static int CropBorderCallback(vlc_object_t *object, char const *cmd,
     return VLC_SUCCESS;
 }
 
-bool GetAspectRatio(const char *ar_str, unsigned *num, unsigned *den)
+bool GetAspectRatio(const char *ar_str, vlc_rational_t *ar)
 {
-    if (sscanf(ar_str, "%u:%u", num, den) == 2 &&
-        (*num != 0) == (*den != 0))
-        return true;
-    else if (*ar_str == '\0') {
-        *num = VLC_DAR_FROM_SOURCE.num;
-        *den = VLC_DAR_FROM_SOURCE.den;
+    if (*ar_str == '\0') {
+        *ar = VLC_DAR_FROM_SOURCE;
         return true;
     }
+    if (strcmp(ar_str,"fill")==0) {
+        *ar = VLC_DAR_FILL_DISPLAY;
+        return true;
+    }
+    if (sscanf(ar_str, "%u:%u", &ar->num, &ar->den) == 2 &&
+        (ar->num != 0) == (ar->den != 0))
+        return true;
     return false;
 }
 
@@ -628,10 +632,10 @@ static int AspectCallback( vlc_object_t *object, char const *cmd,
 {
     vout_thread_t *vout = (vout_thread_t *)object;
     VLC_UNUSED(cmd); VLC_UNUSED(oldval); VLC_UNUSED(data);
-    unsigned num, den;
+    vlc_rational_t ar;
 
-    if (GetAspectRatio(newval.psz_string, &num, &den))
-        vout_ChangeDisplayAspectRatio(vout, num, den);
+    if (GetAspectRatio(newval.psz_string, &ar))
+        vout_ChangeDisplayAspectRatio(vout, ar.num, ar.den);
     return VLC_SUCCESS;
 }
 
@@ -685,7 +689,9 @@ static int ChangeProjectionCallback( vlc_object_t *obj, char const *name,
         default: projection = "unknown"; break;
     }
 
-    vout_OSDMessage(vout, VOUT_SPU_CHANNEL_OSD, "Projection: %s", projection);
+    if (cur.i_int != prev.i_int)
+        vout_OSDMessage(vout, VOUT_SPU_CHANNEL_OSD,
+                        "Projection: %s", projection);
     if (cur.i_int == -1)
     {
         vout_ResetProjection(vout);

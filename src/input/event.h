@@ -27,12 +27,17 @@
 #include <vlc_input.h>
 #include "input_internal.h"
 
-static inline void input_SendEvent(input_thread_t *p_input,
+static inline bool input_SendEvent(input_thread_t *p_input,
                                    const struct vlc_input_event *event)
 {
     input_thread_private_t *priv = input_priv(p_input);
     if (priv->cbs != NULL && priv->cbs->on_event != NULL)
-        priv->cbs->on_event(p_input, event, priv->cbs_data);
+    {
+        return priv->cbs->on_event(p_input, event, priv->cbs_data);
+    }
+    else
+        return false;
+
 }
 
 /*****************************************************************************
@@ -57,11 +62,12 @@ static inline void input_SendEventCapabilities(input_thread_t *p_input,
 static inline void input_SendEventTimes(input_thread_t *p_input,
                                         double f_position, vlc_tick_t i_time,
                                         vlc_tick_t i_normal_time,
-                                        vlc_tick_t i_length)
+                                        vlc_tick_t i_length,
+                                        bool b_live)
 {
     input_SendEvent(p_input, &(struct vlc_input_event) {
         .type = INPUT_EVENT_TIMES,
-        .times = { f_position, i_time, i_normal_time, i_length }
+        .times = { f_position, i_time, i_normal_time, i_length, b_live }
     });
 }
 
@@ -249,10 +255,10 @@ static inline void input_SendEventEs(input_thread_t *p_input,
     });
 }
 
-static inline void input_SendEventParsing(input_thread_t *p_input,
+static inline bool input_SendEventParsing(input_thread_t *p_input,
                                           input_item_node_t *p_root)
 {
-    input_SendEvent(p_input, &(struct vlc_input_event) {
+    return input_SendEvent(p_input, &(struct vlc_input_event) {
         .type = INPUT_EVENT_SUBITEMS,
         .subitems = p_root,
     });

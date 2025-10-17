@@ -27,8 +27,11 @@
 @class VLCMainVideoViewOverlayView;
 @class VLCMainVideoViewAudioMediaDecorativeView;
 @class VLCMainVideoViewControlsBar;
+@class VLCPlaybackEndViewController;
 
 NS_ASSUME_NONNULL_BEGIN
+
+extern NSString * const VLCUseClassicVideoPlayerLayoutKey;
 
 @interface VLCMainVideoViewController : NSViewController
 
@@ -46,17 +49,22 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readwrite, strong) IBOutlet NSLayoutConstraint *returnButtonLeadingConstraint;
 @property (readwrite, strong) IBOutlet NSLayoutConstraint *playQueueButtonTopConstraint;
 @property (readwrite, strong) IBOutlet NSLayoutConstraint *playQueueButtonTrailingConstraint;
+@property (readwrite, strong) IBOutlet NSLayoutConstraint *videoViewBottomConstraint;
 @property (readwrite, strong) IBOutlet NSVisualEffectView *fakeTitleBar;
 @property (readwrite, strong) IBOutlet NSLayoutConstraint *fakeTitleBarHeightConstraint;
 @property (readwrite, strong) IBOutlet NSProgressIndicator *loadingIndicator;
 @property (readwrite, strong) IBOutlet NSImageView *floatOnTopIndicatorImageView;
+@property (readwrite, strong) IBOutlet NSView *classicViewBottomBarContainerView;
 
 @property (readwrite, weak) IBOutlet NSLayoutConstraint *playButtonSizeConstraint;
 @property (readwrite, weak) IBOutlet NSLayoutConstraint *prevButtonSizeConstraint;
 @property (readwrite, weak) IBOutlet NSLayoutConstraint *nextButtonSizeConstraint;
+@property (readwrite, weak) IBOutlet NSLayoutConstraint *jumpBackwardButtonSizeConstraint;
+@property (readwrite, weak) IBOutlet NSLayoutConstraint *jumpForwardButtonSizeConstraint;
 
 @property (readwrite, strong) IBOutlet NSLayoutConstraint *centerButtonStackInViewConstraint;
 @property (readonly) NSLayoutConstraint *bottomButtonStackViewConstraint;
+@property (readonly) NSLayoutConstraint *videoViewBottomToViewConstraint;
 
 @property (readonly, strong) VLCMainVideoViewAudioMediaDecorativeView *audioDecorativeView;
 @property (readwrite, nonatomic) BOOL autohideControls;
@@ -64,10 +72,14 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL mouseOnControls;
 @property (readonly) BOOL pipIsActive;
 
+@property (readonly) VLCPlaybackEndViewController *playbackEndViewController;
+@property (readwrite) void (^endViewDismissHandler)(void);
+
 - (void)showControls;
 - (void)hideControls;
 - (nullable NSView *)acquireVideoView;
 - (void)returnVideoView:(NSView *)videoView;
+- (void)displayPlaybackEndView;
 
 - (IBAction)togglePlayQueue:(id)sender;
 - (IBAction)returnToLibrary:(id)sender;

@@ -310,7 +310,7 @@ bool matroska_segment_c::ParseSimpleTags( SimpleTag* pout_simple, KaxTagSimple *
                           // the SimpleTag is valid if ParseSimpleTags returns `true`
 
             if (vars.obj->ParseSimpleTags( &st, &simple, vars.target_type ))
-              vars.out.sub_tags.push_back( st );
+              vars.out.sub_tags.push_back( std::move(st) );
         }
     };
     SimpleTagHandler::Dispatcher().iterate( tag->begin(), tag->end(), &payload );
@@ -340,23 +340,8 @@ done:
 
 void matroska_segment_c::LoadTags( KaxTags *tags_ )
 {
-    /* Master elements */
-    if( unlikely( tags_->IsFiniteSize() && tags_->GetSize() >= SIZE_MAX ) )
-    {
-        msg_Err( &sys.demuxer, "Tags too big, aborting" );
+    if ( !ReadMaster( *tags_ ) )
         return;
-    }
-    try
-    {
-        EbmlElement *el;
-        int i_upper_level = 0;
-        tags_->Read( es, EBML_CONTEXT(tags_), i_upper_level, el, true );
-    }
-    catch(...)
-    {
-        msg_Err( &sys.demuxer, "Couldn't read tags" );
-        return;
-    }
 
     struct TagsHandlerPayload
     {
@@ -436,7 +421,7 @@ void matroska_segment_c::LoadTags( KaxTags *tags_ )
                     SimpleTag simple;
 
                     if (vars.obj->ParseSimpleTags( &simple, &entry, vars.target_type ))
-                        vars.tag.simple_tags.push_back( simple );
+                        vars.tag.simple_tags.push_back( std::move(simple) );
                 }
                 E_CASE_DEFAULT( el )
                 {
@@ -445,7 +430,7 @@ void matroska_segment_c::LoadTags( KaxTags *tags_ )
             };
 
             TagHandler::Dispatcher().iterate( entry.begin(), entry.end(), &payload );
-            vars.obj->tags.push_back(tag);
+            vars.obj->tags.push_back(std::move(tag));
         }
         E_CASE_DEFAULT( el )
         {
@@ -1258,8 +1243,16 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
                 return;
             }
 
+            filepos_t read = 0;
+            try {
+                read = ksblock.ReadData( vars.obj->es.I_O() );
+            } catch(...) {
+            }
+            if (read == 0 && ksblock.GetSize() != 0) {
+                msg_Err( vars.p_demuxer,"Error while reading %s",  EBML_NAME(&ksblock) );
+                return;
+            }
             vars.simpleblock = &ksblock;
-            vars.simpleblock->ReadData( vars.obj->es.I_O() );
             vars.simpleblock->SetParent( *vars.obj->cluster );
 
             if( ksblock.IsKeyframe() )
@@ -1278,8 +1271,16 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
 
         E_CASE( KaxBlock, kblock )
         {
+            filepos_t read = 0;
+            try {
+                read = kblock.ReadData( vars.obj->es.I_O() );
+            } catch(...) {
+            }
+            if (unlikely(read == 0) && kblock.GetSize() != 0) {
+                msg_Err( vars.p_demuxer,"Error while reading %s",  EBML_NAME(&kblock) );
+                return;
+            }
             vars.block = &kblock;
-            vars.block->ReadData( vars.obj->es.I_O() );
             vars.block->SetParent( *vars.obj->cluster );
 
             const mkv_track_t *p_track = vars.obj->FindTrackByBlock( &kblock, NULL );
@@ -1293,14 +1294,11 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
         }
         E_CASE( KaxBlockAdditions, kadditions )
         {
-            EbmlElement *el;
-            int i_upper_level = 0;
-            try
+            if ( vars.obj->ReadMaster( kadditions ) )
             {
-                kadditions.Read( vars.obj->es, EBML_CONTEXT(&kadditions), i_upper_level, el, false );
                 vars.additions = &kadditions;
                 vars.ep->Keep ();
-            } catch (...) {}
+            }
         }
         E_CASE( KaxBlockDuration, kduration )
         {

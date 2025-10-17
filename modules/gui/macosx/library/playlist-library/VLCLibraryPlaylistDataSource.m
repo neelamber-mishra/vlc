@@ -60,15 +60,19 @@ typedef NS_ENUM(NSInteger, VLCLibraryDataSourceCacheAction) {
 - (void)setup
 {
     _libraryModel = VLCMain.sharedInstance.libraryController.libraryModel;
+    [self connect];
     [self reloadData];
+}
 
+- (void)connect
+{
     NSNotificationCenter * const notificationCenter = NSNotificationCenter.defaultCenter;
     [notificationCenter addObserver:self
                            selector:@selector(playlistsReset:)
                                name:VLCLibraryModelPlaylistAdded
                              object:nil];
     [notificationCenter addObserver:self
-                           selector:@selector(playQueueUpdated:)
+                           selector:@selector(playlistUpdated:)
                                name:VLCLibraryModelPlaylistUpdated
                              object:nil];
     [notificationCenter addObserver:self
@@ -134,7 +138,7 @@ typedef NS_ENUM(NSInteger, VLCLibraryDataSourceCacheAction) {
 - (void)reloadViewsAtIndex:(NSUInteger)index
           dueToCacheAction:(VLCLibraryDataSourceCacheAction)action
 {
-    NSIndexPath * const indexPath = [NSIndexPath indexPathForItem:0 inSection:0];
+    NSIndexPath * const indexPath = [NSIndexPath indexPathForItem:index inSection:0];
     NSSet<NSIndexPath *> * const indexPathSet = [NSSet setWithObject:indexPath];
 
     for (NSCollectionView * const collectionView in self.collectionViews) {

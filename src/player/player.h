@@ -26,6 +26,7 @@
 #include <vlc_vector.h>
 #include <vlc_atomic.h>
 #include <vlc_media_library.h>
+#include <vlc_vout_osd.h>
 
 #include "input/input_internal.h"
 
@@ -67,6 +68,7 @@ struct vlc_player_input
     float rate;
     int capabilities;
     vlc_tick_t length;
+    bool live;
 
     double position;
     vlc_tick_t time;
@@ -215,6 +217,7 @@ struct vlc_player_timer
 {
     vlc_mutex_t lock;
 
+    bool input_live;
     vlc_tick_t input_length;
     vlc_tick_t input_normal_time;
     vlc_tick_t last_ts;
@@ -529,7 +532,7 @@ void
 vlc_player_osd_Message(vlc_player_t *player, const char *fmt, ...);
 
 void
-vlc_player_osd_Icon(vlc_player_t *player, short type);
+vlc_player_osd_Icon(vlc_player_t *player, vlc_osd_widget_type type);
 
 void
 vlc_player_osd_Position(vlc_player_t *player,

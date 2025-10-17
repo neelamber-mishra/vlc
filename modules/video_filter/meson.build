@@ -36,6 +36,32 @@ vlc_modules += {
     'sources' : files('antiflicker.c')
 }
 
+opengl_filter_dep = disabler()
+opengl_filter_cargs = []
+if opengl_dep.found() or opengles2_dep.found()
+    if host_system in ['darwin', 'android'] and opengles2_dep.found()
+        opengl_filter_dep = opengles2_dep
+        opengl_filter_cargs += '-DUSE_OPENGL_ES2'
+    elif opengl_dep.found()
+        opengl_filter_dep = opengl_dep
+    endif
+endif
+
+vlc_modules += {
+    'name' : 'opengl_filter',
+    'sources' : files('opengl.c'),
+    'dependencies' : [gl_common_dep, opengl_filter_dep],
+    'c_args' : opengl_filter_cargs,
+    'enabled' : opengl_filter_dep.found()
+}
+
+vlc_modules += {
+    'name' : 'opengl_win_offscreen',
+    'sources' : files('opengl_win_offscreen.c'),
+    'dependencies' : [ gl_common_dep, opengl_dep ],
+    'enabled' : opengl_dep.found() and host_system == 'windows'
+}
+
 if host_system == 'windows'
     vlc_modules += {
         'name' : 'amf_frc',
@@ -328,4 +354,10 @@ endif
 vlc_modules += {
     'name' : 'blend',
     'sources' : files('blend.cpp')
+}
+
+vlc_modules += {
+    'name' : 'dither',
+    'sources' : files('dither.c'),
+    'dependencies' : [m_lib]
 }

@@ -864,16 +864,13 @@ vlc_player_input_NavigationFallback(struct vlc_player_input *input, int nav_type
 }
 
 static void
-vlc_player_input_MouseFallback(struct vlc_player_input *input,
-                               const struct vlc_input_event_mouse *ev)
+vlc_player_input_MouseFallback(struct vlc_player_input *input)
 {
     vlc_player_t *player = input->player;
-
-    if (vlc_mouse_HasPressed(&ev->oldmouse, &ev->newmouse, MOUSE_BUTTON_LEFT))
-        vlc_player_TogglePause(player);
+    vlc_player_TogglePause(player);
 }
 
-static void
+static bool
 input_thread_Events(input_thread_t *input_thread,
                     const struct vlc_input_event *event, void *user_data)
 {
@@ -907,8 +904,10 @@ input_thread_Events(input_thread_t *input_thread,
                                         VLC_PLAYER_TIMER_EVENT_DISCONTINUITY,
                                         VLC_TICK_INVALID);
         }
-        return;
+        return true;
     }
+
+    bool handled = true;
 
     vlc_mutex_lock(&player->lock);
 
@@ -957,6 +956,12 @@ input_thread_Events(input_thread_t *input_thread,
                 changed = true;
             }
 
+            if (input->live != event->times.live)
+            {
+                input->live = event->times.live;
+                changed = true;
+            }
+
             if (input->normal_time != event->times.normal_time)
             {
                 input->normal_time = event->times.normal_time;
@@ -970,6 +975,7 @@ input_thread_Events(input_thread_t *input_thread,
                     .rate = input->rate,
                     .ts = input->time,
                     .length = input->length,
+                    .live = input->live,
                     .system_date = system_date,
                 };
                 vlc_player_UpdateTimer(player, NULL, false, &point,
@@ -1026,6 +1032,7 @@ input_thread_Events(input_thread_t *input_thread,
         case INPUT_EVENT_SUBITEMS:
             vlc_player_SendEvent(player, on_media_subitems_changed,
                                  input_GetItem(input->thread), event->subitems);
+            input_item_node_Delete(event->subitems);
             break;
         case INPUT_EVENT_DEAD:
             if (input->started) /* Can happen with early input_thread fails */
@@ -1052,14 +1059,16 @@ input_thread_Events(input_thread_t *input_thread,
         case INPUT_EVENT_NAV_FAILED:
             vlc_player_input_NavigationFallback(input, event->nav_type);
             break;
-        case INPUT_EVENT_MOUSE:
-            vlc_player_input_MouseFallback(input, &event->mouse_data);
+        case INPUT_EVENT_MOUSE_LEFT:
+            vlc_player_input_MouseFallback(input);
             break;
         default:
+            handled = false;
             break;
     }
 
     vlc_mutex_unlock(&player->lock);
+    return handled;
 }
 
 void
@@ -1118,6 +1127,7 @@ vlc_player_input_New(vlc_player_t *player, input_item_t *item)
     input->rate = 1.f;
     input->capabilities = 0;
     input->length = input->time = VLC_TICK_INVALID;
+    input->live = false;
     input->normal_time = VLC_TICK_0;
     input->pause_date = VLC_TICK_INVALID;
     input->position = 0.f;

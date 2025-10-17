@@ -651,19 +651,6 @@ static void WindowResize(vlc_window_t *wnd, unsigned width, unsigned height)
     }
 }
 
-/* Request to enable/disable Window decorations */
-static void SetDecoration(vlc_window_t *wnd, bool decorated)
-{
-    VLCVoutWindow *sys = (__bridge VLCVoutWindow*)wnd->sys;
-
-    @autoreleasepool {
-        __weak VLCVideoStandaloneWindowController *weakWc = sys.windowController;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [weakWc setWindowDecorated:decorated];
-        });
-    }
-}
-
 /* Request to enter fullscreen */
 static void WindowSetFullscreen(vlc_window_t *wnd, const char *idstr)
 {
@@ -750,9 +737,13 @@ int Open(vlc_window_t *wnd)
         sys.delegate = moduleDelegate;
 
         __block VLCVideoStandaloneWindowController *windowController;
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        if (CFRunLoopGetCurrent() != CFRunLoopGetMain())
+            dispatch_sync(dispatch_get_main_queue(), ^{
+                windowController = [[VLCVideoStandaloneWindowController alloc] initWithModuleDelegate:moduleDelegate];
+            });
+        else
             windowController = [[VLCVideoStandaloneWindowController alloc] initWithModuleDelegate:moduleDelegate];
-        });
+
         if (unlikely(windowController == nil))
             return VLC_ENOMEM;
         sys.windowController = windowController;
@@ -763,18 +754,6 @@ int Open(vlc_window_t *wnd)
         return VLC_SUCCESS;
     }
 }
-
-static void EmbedClose(vlc_window_t *wnd)
-{
-    id drawable = (__bridge_transfer id)wnd->handle.nsobject;
-    wnd->handle.nsobject = nil;
-    (void)drawable;
-}
-
-static const struct vlc_window_operations drawable_ops =
-{
-    .destroy = EmbedClose,
-};
 
 static int EmbedOpen(vlc_window_t *wnd)
 {

@@ -33,10 +33,12 @@
 #import "VLCMediaSource.h"
 
 #import "extensions/NSString+Helpers.h"
+#import "extensions/NSTableCellView+VLCAdditions.h"
 
 #import "library/VLCInputItem.h"
 #import "library/VLCInputNodePathControl.h"
 #import "library/VLCInputNodePathControlItem.h"
+#import "library/VLCLibraryImageCache.h"
 #import "library/VLCLibraryTableCellView.h"
 #import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
@@ -59,6 +61,14 @@ NSString * const VLCMediaSourceDataSourceNodeChanged = @"VLCMediaSourceDataSourc
 @end
 
 @implementation VLCMediaSourceDataSource
+
+- (instancetype)initWithParentBaseDataSource:(VLCMediaSourceBaseDataSource *)parentBaseDataSource
+{
+    self = [super init];
+    if (self)
+        self.parentBaseDataSource = parentBaseDataSource;
+    return self;
+}
 
 - (dispatch_source_t)observeLocalUrl:(NSURL *)url
                       forVnodeEvents:(dispatch_source_vnode_flags_t)eventsFlags
@@ -89,29 +99,43 @@ NSString * const VLCMediaSourceDataSourceNodeChanged = @"VLCMediaSourceDataSourc
     _nodeToDisplay = nodeToDisplay;
 
     input_item_node_t * const inputNode = nodeToDisplay.vlcInputItemNode;
-    NSURL * const nodeUrl = [NSURL URLWithString:nodeToDisplay.inputItem.MRL];
-    [self.displayedMediaSource generateChildNodesForDirectoryNode:inputNode withUrl:nodeUrl];
+
+    NSParameterAssert(self.parentBaseDataSource);
+    if (self.parentBaseDataSource.mediaSourceMode == VLCMediaSourceModeLAN) {
+        NSURL * const nodeUrl = [NSURL URLWithString:nodeToDisplay.inputItem.MRL];
+        NSError * const error =
+            [self.displayedMediaSource generateChildNodesForDirectoryNode:inputNode
+                                                                  withUrl:nodeUrl];
+        if (error) {
+            NSAlert * const alert = [NSAlert alertWithError:error];
+            alert.alertStyle = NSAlertStyleCritical;
+            [alert runModal];
+            return;
+        }
+
+        const __weak typeof(self) weakSelf = self;
+        self.observedPathDispatchSource = [self observeLocalUrl:nodeUrl
+                                                forVnodeEvents:DISPATCH_VNODE_WRITE | 
+                                                               DISPATCH_VNODE_DELETE |
+                                                               DISPATCH_VNODE_RENAME
+                                            withEventHandler:^{
+            const uintptr_t eventFlags =
+                dispatch_source_get_data(weakSelf.observedPathDispatchSource);
+            if (eventFlags & DISPATCH_VNODE_DELETE || eventFlags & DISPATCH_VNODE_RENAME) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf.parentBaseDataSource homeButtonAction:weakSelf];
+                });
+            } else {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf.displayedMediaSource generateChildNodesForDirectoryNode:inputNode
+                                                                              withUrl:nodeUrl];
+                    [weakSelf reloadData];
+                });
+            }
+        }];
+    }
 
     [self reloadData];
-
-    const __weak typeof(self) weakSelf = self;
-
-    self.observedPathDispatchSource = [self observeLocalUrl:nodeUrl
-                                             forVnodeEvents:DISPATCH_VNODE_WRITE | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME
-                                           withEventHandler:^{
-        const uintptr_t eventFlags = dispatch_source_get_data(weakSelf.observedPathDispatchSource);
-        if (eventFlags & DISPATCH_VNODE_DELETE || eventFlags & DISPATCH_VNODE_RENAME) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf.parentBaseDataSource homeButtonAction:weakSelf];
-            });
-        } else {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf.displayedMediaSource generateChildNodesForDirectoryNode:inputNode
-                                                                          withUrl:nodeUrl];
-                [weakSelf reloadData];
-            });
-        }
-    }];
 }
 
 - (void)setupViews
@@ -218,10 +242,113 @@ NSString * const VLCMediaSourceDataSourceNodeChanged = @"VLCMediaSourceDataSourc
     return 0;
 }
 
-- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
+- (NSView *)tableView:(NSTableView *)tableView
+   viewForTableColumn:(NSTableColumn *)tableColumn
+                  row:(NSInteger)row
 {
-    VLCLibraryTableCellView * const cellView = [tableView makeViewWithIdentifier:VLCLibraryTableCellViewIdentifier owner:self];
-    cellView.representedInputItem = [self mediaSourceInputItemAtRow:row];
+    VLCInputNode * const inputNode = [self mediaSourceInputNodeAtRow:row];
+
+    if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableNameColumn"]) {
+        VLCLibraryTableCellView * const cellView =
+            [tableView makeViewWithIdentifier:VLCLibraryTableCellViewIdentifier owner:self];
+        [VLCLibraryImageCache thumbnailForInputItem:inputNode.inputItem
+                                     withCompletion:^(NSImage * _Nullable image) {
+            cellView.representedImageView.image = image;
+        }];
+        cellView.primaryTitleTextField.hidden = YES;
+        cellView.secondaryTitleTextField.hidden = YES;
+        cellView.singlePrimaryTitleTextField.hidden = NO;
+        cellView.singlePrimaryTitleTextField.stringValue = inputNode.inputItem.name;
+        return cellView;
+    }
+
+     // Only present count view for folders
+    if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableCountColumn"] &&
+        inputNode.inputItem.inputType != ITEM_TYPE_DIRECTORY) {
+        return nil;
+    }
+
+    static NSString * const basicCellViewIdentifier = @"BasicTableCellViewIdentifier";
+    NSTableCellView *cellView =
+        [tableView makeViewWithIdentifier:basicCellViewIdentifier owner:self];
+    if (cellView == nil) {
+        cellView =
+            [NSTableCellView tableCellViewWithIdentifier:basicCellViewIdentifier showingString:@""];
+    }
+    NSAssert(cellView, @"Cell view should not be nil");
+
+    if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableCountColumn"]) {
+        if (inputNode.numberOfChildren == 0) {
+            cellView.textField.stringValue = NSTR("Loading…");
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                NSURL * const inputNodeUrl = [NSURL URLWithString:inputNode.inputItem.MRL];
+                input_item_node_t * const p_inputNode = inputNode.vlcInputItemNode;
+                NSError * const error =
+                    [self.displayedMediaSource generateChildNodesForDirectoryNode:p_inputNode
+                                                                          withUrl:inputNodeUrl];
+                if (error)
+                    return;
+
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    cellView.textField.stringValue =
+                        [NSString stringWithFormat:@"%i items", inputNode.numberOfChildren];
+                });
+            });
+        } else {
+            cellView.textField.stringValue =
+                [NSString stringWithFormat:@"%i items", inputNode.numberOfChildren];
+        }
+    } else if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableKindColumn"]) {
+        NSString *typeName = NSTR("Unknown");
+        switch (inputNode.inputItem.inputType) {
+            case ITEM_TYPE_UNKNOWN:
+                typeName = NSTR("Unknown");
+                break;
+            case ITEM_TYPE_FILE:
+            {
+                NSString * const filePath = inputNode.inputItem.MRL;
+                NSString * const extension = filePath.pathExtension.lowercaseString;
+                if (extension.length > 0) {
+                    typeName = [NSString stringWithFormat:@"%@ File", extension.capitalizedString];
+
+                    const CFStringRef extCF = (__bridge CFStringRef)extension;
+                    const CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extCF, NULL);
+                    if (uti) {
+                        CFStringRef descriptionCF = UTTypeCopyDescription(uti);
+                        if (descriptionCF) {
+                            typeName = CFBridgingRelease(descriptionCF);
+                        }
+                        CFRelease(uti);
+                    }
+                } else {
+                    typeName = NSTR("File");
+                }
+                break;
+            }
+            case ITEM_TYPE_DIRECTORY:
+                typeName = NSTR("Directory");
+                break;
+            case ITEM_TYPE_DISC:
+                typeName = NSTR("Disc");
+                break;
+            case ITEM_TYPE_CARD:
+                typeName = NSTR("Card");
+                break;
+            case ITEM_TYPE_STREAM:
+                typeName = NSTR("Stream");
+                break;
+            case ITEM_TYPE_PLAYLIST:
+                typeName = NSTR("Playlist");
+                break;
+            case ITEM_TYPE_NODE:
+                typeName = NSTR("Node");
+                break;
+            case ITEM_TYPE_NUMBER:
+                typeName = NSTR("Undefined");
+                break;
+        }
+        cellView.textField.stringValue = typeName;
+    }
     return cellView;
 }
 
@@ -292,7 +419,13 @@ NSString * const VLCMediaSourceDataSourceNodeChanged = @"VLCMediaSourceDataSourc
         VLCInputNodePathControlItem *nodePathItem = [[VLCInputNodePathControlItem alloc] initWithInputNode:node];
         [self.pathControl appendInputNodePathControlItem:nodePathItem];
 
-        [self.displayedMediaSource preparseInputNodeWithinTree:node];
+        NSError * const error = [self.displayedMediaSource preparseInputNodeWithinTree:node];
+        if (error) {
+            NSAlert * const alert = [NSAlert alertWithError:error];
+            alert.alertStyle = NSAlertStyleCritical;
+            [alert runModal];
+            return;
+        }
         self.nodeToDisplay = node;
 
         [self.navigationStack appendCurrentLibraryState];

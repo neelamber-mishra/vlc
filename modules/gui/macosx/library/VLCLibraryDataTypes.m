@@ -44,10 +44,11 @@ NSString *VLCMediaLibraryMediaItemLibraryID = @"VLCMediaLibraryMediaItemLibraryI
 typedef vlc_ml_media_list_t* (*library_mediaitem_list_fetch_f)(vlc_medialibrary_t*, const vlc_ml_query_params_t*, int64_t);
 typedef vlc_ml_album_list_t* (*library_album_list_fetch_f)(vlc_medialibrary_t*, const vlc_ml_query_params_t*, int64_t);
 typedef vlc_ml_artist_list_t* (*library_artist_list_fetch_f)(vlc_medialibrary_t*, const vlc_ml_query_params_t*, int64_t);
+typedef int (*library_item_set_favorite_f)(vlc_medialibrary_t*, int64_t, bool);
 
-static vlc_medialibrary_t *getMediaLibrary(void)
+vlc_medialibrary_t * _Nullable getMediaLibrary(void)
 {
-    intf_thread_t *p_intf = getIntf();
+    intf_thread_t * const p_intf = getIntf();
     if (!p_intf) {
         return nil;
     }
@@ -132,6 +133,15 @@ static NSArray<NSString *> *labelsForMediaLibraryItem(const int64_t libraryID) {
         [labels addObject:toNSStr(label->psz_name)];
     }
     return labels.copy;
+}
+
+static int setFavoriteForLibraryItem(library_item_set_favorite_f setFavoriteFunction, const int64_t itemId, const BOOL favorite)
+{
+    vlc_medialibrary_t * const p_mediaLibrary = getMediaLibrary();
+    if (!p_mediaLibrary) {
+        return VLC_EGENERIC;
+    }
+    return setFavoriteFunction(p_mediaLibrary, itemId, favorite);
 }
 
 static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const genres)
@@ -263,20 +273,6 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 
 @end
 
-@implementation VLCMediaLibraryMovie
-
-- (instancetype)initWithMovie:(struct vlc_ml_movie_t *)p_movie
-{
-    self = [super init];
-    if (self && p_movie != NULL) {
-        _summary = toNSStr(p_movie->psz_summary);
-        _imdbID = toNSStr(p_movie->psz_imdb_id);
-    }
-    return self;
-}
-
-@end
-
 @implementation VLCMediaLibraryShowEpisode
 
 - (instancetype)initWithShowEpisode:(struct vlc_ml_show_episode_t *)p_showEpisode
@@ -323,6 +319,11 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     return nil;
 }
 
+- (BOOL)isFileBacked
+{
+    return YES;
+}
+
 - (id<VLCMediaLibraryItemProtocol>)primaryActionableDetailLibraryItem
 {
     [self doesNotRecognizeSelector:_cmd];
@@ -358,6 +359,42 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         self.internalLabels = labelsForMediaLibraryItem(self.libraryID);
     }
     return self.internalLabels;
+}
+
+- (BOOL)favorited
+{
+    __block BOOL allFavorited = YES;
+    __block BOOL hasItems = NO;
+    
+    [self iterateMediaItemsWithBlock:^(VLCMediaLibraryMediaItem * _Nonnull mediaItem) {
+        hasItems = YES;
+        if (!mediaItem.favorited) {
+            allFavorited = NO;
+        }
+    }];
+    
+    return hasItems && allFavorited;
+}
+
+- (int)setFavorite:(BOOL)favorite
+{
+    __block int lastResult = VLC_SUCCESS;
+    __block BOOL hasItems = NO;
+    
+    [self iterateMediaItemsWithBlock:^(VLCMediaLibraryMediaItem * _Nonnull mediaItem) {
+        hasItems = YES;
+        const int result = [mediaItem setFavorite:favorite];
+        if (result != VLC_SUCCESS) {
+            lastResult = result;
+        }
+    }];
+    
+    return hasItems ? lastResult : VLC_EGENERIC;
+}
+
+- (int)toggleFavorite
+{
+    return [self setFavorite:!self.favorited];
 }
 
 @end
@@ -433,6 +470,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 @implementation VLCMediaLibraryArtist
 
 @synthesize numberOfTracks = _numberOfTracks;
+@synthesize favorited = _favorited;
 
 + (nullable instancetype)artistWithID:(int64_t)artistID
 {
@@ -463,6 +501,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         _musicBrainzID = toNSStr(p_artist->psz_mb_id);
         _numberOfAlbums = p_artist->i_nb_album;
         _numberOfTracks = p_artist->i_nb_tracks;
+        _favorited = p_artist->b_is_favorite;
     }
     return self;
 }
@@ -540,6 +579,14 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     }
 }
 
+- (int)setFavorite:(BOOL)favorite
+{
+    const int res = setFavoriteForLibraryItem(vlc_ml_artist_set_favorite, self.libraryID, favorite);
+    if (res == VLC_SUCCESS)
+        _favorited = favorite;
+    return res;
+}
+
 @end
 
 @interface VLCMediaLibraryAlbum ()
@@ -552,6 +599,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 
 @synthesize numberOfTracks = _numberOfTracks;
 @synthesize primaryActionableDetailLibraryItem = _primaryActionableDetailLibraryItem;
+@synthesize favorited = _favorited;
 
 + (nullable instancetype)albumWithID:(int64_t)albumID
 {
@@ -584,6 +632,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         _numberOfTracks = p_album->i_nb_tracks;
         _duration = p_album->i_duration;
         _year = p_album->i_year;
+        _favorited = p_album->b_is_favorite;
     }
     return self;
 }
@@ -658,11 +707,20 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     }
 }
 
+- (int)setFavorite:(BOOL)favorite
+{
+    const int res = setFavoriteForLibraryItem(vlc_ml_album_set_favorite, self.libraryID, favorite);
+    if (res == VLC_SUCCESS)
+        _favorited = favorite;
+    return res;
+}
+
 @end
 
 @implementation VLCMediaLibraryGenre
 
 @synthesize numberOfTracks = _numberOfTracks;
+@synthesize favorited = _favorited;
 
 - (instancetype)initWithGenre:(struct vlc_ml_genre_t *)p_genre
 {
@@ -676,6 +734,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 
         _name = toNSStr(p_genre->psz_name);
         _numberOfTracks = p_genre->i_nb_tracks;
+        _favorited = p_genre->b_is_favorite;
     }
     return self;
 }
@@ -766,6 +825,14 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     }
 }
 
+- (int)setFavorite:(BOOL)favorite
+{
+    const int res = setFavoriteForLibraryItem(vlc_ml_genre_set_favorite, self.libraryID, favorite);
+    if (res == VLC_SUCCESS)
+        _favorited = favorite;
+    return res;
+}
+
 @end
 
 @interface VLCMediaLibraryGroup ()
@@ -853,6 +920,8 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 
 @implementation VLCMediaLibraryPlaylist
 
+@synthesize favorited = _favorited;
+
 + (instancetype)playlistForLibraryID:(int64_t)libraryID
 {
     vlc_medialibrary_t * const p_mediaLibrary = getMediaLibrary();
@@ -896,6 +965,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         _numberDurationUnknown = p_playlist->i_nb_duration_unknown;
 
         _readOnly = p_playlist->b_is_read_only;
+        _favorited = p_playlist->b_is_favorite;
     }
     return self;
 }
@@ -931,13 +1001,63 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     return self.mediaItems.firstObject;
 }
 
+- (BOOL)isFileBacked
+{
+    if (_MRL == nil || _MRL.length == 0) {
+        return NO;
+    }
+
+    NSURL * const URL = [NSURL URLWithString:_MRL];
+    if (URL == nil || !URL.isFileURL) {
+        return NO;
+    }
+
+    return [NSFileManager.defaultManager fileExistsAtPath:URL.path];
+}
+
 - (void)moveToTrash
 {
-    NSFileManager * const fileManager = NSFileManager.defaultManager;
-    NSURL * const URL = [NSURL URLWithString:_MRL];
-    [fileManager trashItemAtURL:URL
-               resultingItemURL:nil
-                          error:nil];
+    // First check if this playlist has a valid file MRL (e.g., .m3u file)
+    if (_MRL != nil && _MRL.length > 0) {
+        NSURL * const URL = [NSURL URLWithString:_MRL];
+        if (URL == nil || !URL.isFileURL) {
+            NSLog(@"Playlist %@ is not file-backed or is a dir (?)", self.displayString);
+            return;
+        }
+        NSFileManager * const fileManager = NSFileManager.defaultManager;
+        const BOOL fileExists = [fileManager fileExistsAtPath:URL.path];
+        
+        if (!fileExists) {
+            NSLog(@"Playlist file does not exist: %@", URL.path);
+            return;
+        }
+        
+        // This is a file-based playlist, move the file to trash
+        NSError *error = nil;
+        [fileManager trashItemAtURL:URL
+                    resultingItemURL:nil
+                                error:&error];
+        if (error) {
+            NSLog(@"Failed to move playlist file to trash: %@", error);
+        } else {
+            NSLog(@"Successfully moved playlist file %@ to trash", URL.lastPathComponent);
+            return;
+        }
+    }
+    
+    // If no valid file MRL or file doesn't exist, delete from media library
+    vlc_medialibrary_t * const p_ml = getMediaLibrary();
+    if (p_ml == NULL) {
+        NSLog(@"Could not get media library to delete playlist %@", self.displayString);
+        return;
+    }
+    
+    const int result = vlc_ml_playlist_delete(p_ml, self.libraryID);
+    if (result != VLC_SUCCESS) {
+        NSLog(@"Failed to delete playlist %@ with ID %lld from media library", self.displayString, self.libraryID);
+    } else {
+        NSLog(@"Successfully deleted playlist %@ with ID %lld from media library", self.displayString, self.libraryID);
+    }
 }
 
 - (void)revealInFinder
@@ -957,6 +1077,14 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     for(VLCMediaLibraryMediaItem * const item in self.mediaItems) {
         mediaItemBlock(item);
     }
+}
+
+- (int)setFavorite:(BOOL)favorite
+{
+    const int res = setFavoriteForLibraryItem(vlc_ml_playlist_set_favorite, self.libraryID, favorite);
+    if (res == VLC_SUCCESS)
+        _favorited = favorite;
+    return res;
 }
 
 @end
@@ -979,6 +1107,8 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 @synthesize secondaryActionableDetail = _secondaryActionableDetail;
 @synthesize primaryActionableDetailLibraryItem = _primaryActionableDetailLibraryItem;
 @synthesize secondaryActionableDetailLibraryItem = _secondaryActionableDetailLibraryItem;
+@synthesize favorited = _favorited;
+@synthesize isFileBacked = _isFileBacked;
 
 #pragma mark - initialization
 
@@ -1076,10 +1206,11 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         _progress = p_mediaItem->f_progress;
         _favorited = p_mediaItem->b_is_favorite;
         _title = toNSStr(p_mediaItem->psz_title);
+        _isFileBacked = YES;
 
         switch (p_mediaItem->i_subtype) {
             case VLC_ML_MEDIA_SUBTYPE_MOVIE:
-                _movie = [[VLCMediaLibraryMovie alloc] initWithMovie:&p_mediaItem->movie];
+                _movie = [[VLCMediaLibraryMovie alloc] initWithMediaItem:p_mediaItem];
                 break;
 
             case VLC_ML_MEDIA_SUBTYPE_SHOW_EPISODE:
@@ -1576,11 +1707,39 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     return self.internalLabels;
 }
 
+- (int)setFavorite:(BOOL)favorite
+{
+    const int res = setFavoriteForLibraryItem(vlc_ml_media_set_favorite, self.libraryID, favorite);
+    if (res == VLC_SUCCESS)
+        _favorited = favorite;
+    else
+        NSLog(@"Unable to set favorite status of media item: %lli", self.libraryID);
+    return res;
+}
+
+- (int)toggleFavorite
+{
+    return [self setFavorite:!self.favorited];
+}
+
 @end
 
 @implementation VLCMediaLibraryShow
 
 @synthesize episodes = _episodes;
+
++ (nullable instancetype)showWithLibraryId:(const int64_t)libraryId
+{
+    vlc_medialibrary_t * const p_mediaLibrary = getMediaLibrary();
+    if (p_mediaLibrary == NULL) {
+        return nil;
+    }
+    vlc_ml_show_t * const p_show = vlc_ml_get_show(p_mediaLibrary, libraryId);
+    if (p_show == NULL) {
+        return nil;
+    }
+    return [[VLCMediaLibraryShow alloc] initWithShow:p_show];
+}
 
 - (instancetype)initWithShow:(struct vlc_ml_show_t *)p_show
 {
@@ -1613,6 +1772,48 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 - (NSArray<VLCMediaLibraryMediaItem *> *)mediaItems
 {
     return self.episodes;
+}
+
+@end
+
+@implementation VLCMediaLibraryMovie
+
+- (instancetype)initWithMediaItem:(struct vlc_ml_media_t *)p_media
+{
+    self = [super init];
+    if (self && p_media != NULL) {
+        // Set up abstract item properties
+        self.libraryID = p_media->i_id;
+        self.smallArtworkGenerated = p_media->thumbnails[VLC_ML_THUMBNAIL_SMALL].psz_mrl != NULL;
+        self.smallArtworkMRL = self.smallArtworkGenerated ? toNSStr(p_media->thumbnails[VLC_ML_THUMBNAIL_SMALL].psz_mrl) : nil;
+        self.displayString = p_media->psz_title ? toNSStr(p_media->psz_title) : @"";
+        self.primaryDetailString = self.displayString;
+        self.secondaryDetailString = @"";
+        self.durationString = [NSString stringWithTime:p_media->i_duration / VLCMediaLibraryMediaItemDurationDenominator];
+
+        // Movie-specific
+        _summary = toNSStr(p_media->movie.psz_summary);
+        _imdbID = toNSStr(p_media->movie.psz_imdb_id);
+    }
+    return self;
+}
+
+- (NSArray<VLCMediaLibraryMediaItem *> *)mediaItems
+{
+    VLCMediaLibraryMediaItem *item = [VLCMediaLibraryMediaItem mediaItemForLibraryID:self.libraryID];
+    return item ? @[item] : @[];
+}
+
+- (VLCMediaLibraryMediaItem *)firstMediaItem
+{
+    return self.mediaItems.firstObject;
+}
+
+- (void)iterateMediaItemsWithBlock:(void (^)(VLCMediaLibraryMediaItem*))mediaItemBlock
+{
+    for (VLCMediaLibraryMediaItem *item in self.mediaItems) {
+        mediaItemBlock(item);
+    }
 }
 
 @end
@@ -1656,6 +1857,8 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
 @synthesize secondaryActionableDetail = _secondaryActionableDetail;
 @synthesize secondaryActionableDetailLibraryItem = _secondaryActionableDetailLibraryItem;
 @synthesize labels = _labels;
+@synthesize favorited = _favorited;
+@synthesize isFileBacked = _isFileBacked;
 
 - (instancetype)initWithDisplayString:(NSString *)displayString
               withPrimaryDetailString:(nullable NSString *)primaryDetailString
@@ -1670,6 +1873,7 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
         _libraryId = -1;
         _smallArtworkGenerated = NO;
         _smallArtworkMRL = @"";
+        _isFileBacked = NO;
         _primaryActionableDetail = NO;
         _primaryActionableDetailLibraryItem = nil;
         _secondaryActionableDetail = NO;
@@ -1678,22 +1882,58 @@ static NSString *genreArrayDisplayString(NSArray<VLCMediaLibraryGenre *> * const
     return self;
 }
 
+- (instancetype)initWithDisplayString:(NSString *)displayString
+                      withMediaItems:(NSArray<VLCMediaLibraryMediaItem *> *)mediaItems
+{
+
+    self = [self initWithDisplayString:displayString
+               withPrimaryDetailString:[NSString stringWithFormat:@"%lu items", (unsigned long)mediaItems.count]
+              withSecondaryDetailString:@""];
+    if (self) {
+        _mediaItems = mediaItems;
+        _firstMediaItem = mediaItems.firstObject;
+    }
+    return self;
+}
+
 - (void)moveToTrash
 {
-    [self doesNotRecognizeSelector:_cmd];
-    return;
+    [self iterateMediaItemsWithBlock:^(VLCMediaLibraryMediaItem * const item) {
+        [item moveToTrash];
+    }];
 }
 
 - (void)revealInFinder
 {
-    [self doesNotRecognizeSelector:_cmd];
-    return;
+    [self.mediaItems.firstObject revealInFinder];
 }
 
 - (void)iterateMediaItemsWithBlock:(nonnull void (^)(VLCMediaLibraryMediaItem * _Nonnull))mediaItemBlock
 {
-    [self doesNotRecognizeSelector:_cmd];
-    return;
+     for (VLCMediaLibraryMediaItem * const childItem in self.mediaItems) {
+        mediaItemBlock(childItem);
+    }
+}
+
+- (int)setFavorite:(BOOL)favorite
+{
+    __block int lastResult = VLC_SUCCESS;
+    __block BOOL hasItems = NO;
+    
+    [self iterateMediaItemsWithBlock:^(VLCMediaLibraryMediaItem * _Nonnull mediaItem) {
+        hasItems = YES;
+        const int result = [mediaItem setFavorite:favorite];
+        if (result != VLC_SUCCESS) {
+            lastResult = result;
+        }
+    }];
+    
+    return hasItems ? lastResult : VLC_EGENERIC;
+}
+
+- (int)toggleFavorite
+{
+    return [self setFavorite:!self.favorited];
 }
 
 @end

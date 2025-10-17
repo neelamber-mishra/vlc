@@ -198,8 +198,13 @@ static int Open(struct vlc_gl_interop *interop)
         result = CALL_CUDA(cuCtxCreate, &p_sys->cuConverterCtx, 0, cuConverterDevice);
         if (result != VLC_SUCCESS)
         {
+            vlc_decoder_device_Release(device);
+            return result;
         }
     }
+
+    /* The pictures are uploaded upside-down */
+    video_format_TransformBy(&interop->fmt_out, TRANSFORM_VFLIP);
 
     vlc_fourcc_t render_chroma = NVDECToVlcChroma(interop->fmt_in.i_chroma);
     switch (render_chroma)
@@ -267,6 +272,7 @@ static int Open(struct vlc_gl_interop *interop)
             break;
     }
 
+    interop->tex_target = GL_TEXTURE_2D;
     interop->fmt_out.i_chroma = render_chroma;
     interop->fmt_out.space = interop->fmt_in.space;
 

@@ -459,6 +459,11 @@ static int Open( vlc_object_t * p_this )
                   "found %d stream but %d are declared",
                   i_track, p_avih->i_streams );
     }
+    if( i_track > AVIF_MAX_STREAMS )
+    {
+        msg_Err( p_demux, "Invalid number of streams %u", i_track );
+        goto error;
+    }
     if( i_track == 0 )
     {
         msg_Err( p_demux, "no stream defined!" );
@@ -690,6 +695,11 @@ static int Open( vlc_object_t * p_this )
                 {
                     tk->is_qnap = true;
                     tk->fmt.b_packetized = false;
+                }
+
+                if( tk->fmt.i_codec == VLC_CODEC_H264 && tk->fmt.i_extra )
+                {
+                    tk->fmt.i_original_fourcc = VLC_FOURCC('a','v','c','1');
                 }
 
                 tk->i_samplesize = 0;
@@ -1046,7 +1056,21 @@ static void AVI_SendFrame( demux_t *p_demux, avi_track_t *tk, block_t *p_frame )
                 if( *psz_osd != 0 )
                 {
                     psz_osd[23] = 0;
-                    if( !psz_title || strncmp( psz_osd, psz_title, 24 ) )
+                    {
+                        char *str = psz_osd;
+                        ssize_t n;
+                        uint32_t cp;
+
+                        while ((n = vlc_towc(str, &cp)) != 0)
+                            if (likely(n != -1))
+                                str += n;
+                            else
+                            {
+                                *str = '\0';
+                                break;
+                            }
+                    }
+                    if( psz_osd[0] && ( !psz_title || strncmp( psz_osd, psz_title, 24 ) ) )
                     {
                         vlc_meta_Set( p_sys->meta, vlc_meta_Title, psz_osd );
                         p_sys->updates |= INPUT_UPDATE_META;
@@ -1176,7 +1200,7 @@ static int Demux_Seekable( demux_t *p_demux )
         else if ( i_dpts > VLC_TICK_FROM_SEC(-2) ) /* don't send a too early dts (low fps video) */
         {
             int64_t i_chunks_count = AVI_PTSToChunk( tk, i_dpts );
-            if( i_dpts > 0 && AVI_GetDPTS( tk, i_chunks_count ) < i_dpts )
+            if( i_chunks_count > 0 && AVI_GetDPTS( tk, i_chunks_count ) < i_dpts )
             {
                 /* AVI code is crap. toread is either bytes, or here, chunk count.
                  * That does not even work when reading amount < scale / rate */
@@ -1613,7 +1637,10 @@ static int Seek( demux_t *p_demux, vlc_tick_t i_date, double f_ratio, bool b_acc
         if( p_sys->i_length == 0 )
         {
             avi_track_t *p_stream = NULL;
-            uint64_t i_pos;
+            uint64_t i_pos, i_stream_size;
+
+            if( vlc_stream_GetSize( p_demux->s, &i_stream_size ) != VLC_SUCCESS )
+                goto failandresetpos;
 
             if ( !p_sys->i_movi_lastchunk_pos && /* set when index is successfully loaded */
                  ! ( p_sys->i_avih_flags & AVIF_ISINTERLEAVED ) )
@@ -1631,8 +1658,7 @@ static int Seek( demux_t *p_demux, vlc_tick_t i_date, double f_ratio, bool b_acc
             f_ratio = __MAX( f_ratio, 0 );
 
             /* try to find chunk that is at i_percent or the file */
-            i_pos = __MAX( f_ratio * stream_Size( p_demux->s ),
-                           p_sys->i_movi_begin );
+            i_pos = __MAX( f_ratio * i_stream_size, p_sys->i_movi_begin );
             /* search first selected stream (and prefer non-EOF ones) */
             for( unsigned i = 0; i < p_sys->i_track; i++ )
             {
@@ -1732,15 +1758,16 @@ failandresetpos:
 static double ControlGetPosition( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
+    uint64_t i_size;
 
     if( p_sys->i_length != 0 )
     {
         return (double)p_sys->i_time / (double)p_sys->i_length;
     }
-    else if( stream_Size( p_demux->s ) > 0 )
+    else if( vlc_stream_GetSize( p_demux->s, &i_size ) == VLC_SUCCESS && i_size )
     {
-        double i64 = (uint64_t)vlc_stream_Tell( p_demux->s );
-        return i64 / stream_Size( p_demux->s );
+        double i64 = vlc_stream_Tell( p_demux->s );
+        return i64 / i_size;
     }
     return 0.0;
 }
@@ -1884,8 +1911,8 @@ static int64_t AVI_Rescale( vlc_tick_t i_value, uint32_t i_timescale, uint32_t i
 
 static int64_t AVI_PTSToChunk( avi_track_t *tk, vlc_tick_t i_pts )
 {
-    if( !tk->i_scale )
-        return 0;
+    if( !tk->i_scale || !tk->i_rate )
+        return -1;
 
     i_pts = AVI_Rescale( i_pts, tk->i_scale, tk->i_rate );
     return SEC_FROM_VLC_TICK(i_pts);
@@ -1893,8 +1920,8 @@ static int64_t AVI_PTSToChunk( avi_track_t *tk, vlc_tick_t i_pts )
 
 static int64_t AVI_PTSToByte( avi_track_t *tk, vlc_tick_t i_pts )
 {
-    if( !tk->i_scale || !tk->i_samplesize )
-        return 0;
+    if( !tk->i_scale || !tk->i_samplesize || !tk->i_rate )
+        return -1;
 
     i_pts = AVI_Rescale( i_pts, tk->i_scale, tk->i_rate );
     return samples_from_vlc_tick( i_pts, tk->i_samplesize );
@@ -2114,7 +2141,10 @@ static int AVI_TrackSeek( demux_t *p_demux,
 
     if( !tk->i_samplesize )
     {
-        if( AVI_StreamChunkSet( p_demux, tk, AVI_PTSToChunk( tk, i_date ) ) )
+        int64_t idxpos = AVI_PTSToChunk( tk, i_date );
+        if ( unlikely( idxpos < 0 || idxpos > UINT_MAX ) )
+            return VLC_EGENERIC;
+        if( AVI_StreamChunkSet( p_demux, tk, idxpos ) )
         {
             return VLC_EGENERIC;
         }
@@ -2170,7 +2200,10 @@ static int AVI_TrackSeek( demux_t *p_demux,
     }
     else
     {
-        if( AVI_StreamBytesSet( p_demux, tk, AVI_PTSToByte( tk, i_date ) ) )
+        int64_t toread = AVI_PTSToByte( tk, i_date );
+        if ( toread < 0)
+            return VLC_EGENERIC;
+        if( AVI_StreamBytesSet( p_demux, tk, toread ) )
         {
             return VLC_EGENERIC;
         }
@@ -2285,7 +2318,7 @@ static void AVI_ParseStreamHeader( vlc_fourcc_t i_id,
 
     if( c1 < '0' || c1 > '9' || c2 < '0' || c2 > '9' )
     {
-        *pi_number =  100; /* > max stream number */
+        *pi_number = AVIF_MAX_STREAMS; /* > max stream number */
         *pi_type = UNKNOWN_ES;
     }
     else
@@ -2694,7 +2727,6 @@ static void AVI_IndexLoad( demux_t *p_demux )
     demux_sys_t *p_sys = p_demux->p_sys;
 
     /* Load indexes */
-    assert( p_sys->i_track <= 100 );
     avi_index_t p_idx_indx[p_sys->i_track];
     avi_index_t p_idx_idx1[p_sys->i_track];
     for( unsigned i = 0; i < p_sys->i_track; i++ )
@@ -2758,7 +2790,8 @@ static void AVI_IndexCreate( demux_t *p_demux )
     avi_chunk_list_t *p_movi;
 
     unsigned int i_stream;
-    uint32_t i_movi_end;
+    uint64_t i_movi_end;
+    uint64_t i_stream_size;
 
     vlc_tick_t i_dialog_update;
     vlc_dialog_id *p_dialog_id = NULL;
@@ -2772,11 +2805,13 @@ static void AVI_IndexCreate( demux_t *p_demux )
         return;
     }
 
+    if( vlc_stream_GetSize( p_demux->s, &i_stream_size ) != VLC_SUCCESS )
+        return;
+
     for( i_stream = 0; i_stream < p_sys->i_track; i_stream++ )
         avi_index_Init( &p_sys->track[i_stream]->idx );
 
-    i_movi_end = __MIN( (uint32_t)(p_movi->i_chunk_pos + p_movi->i_chunk_size),
-                        stream_Size( p_demux->s ) );
+    i_movi_end = __MIN( p_movi->i_chunk_pos + p_movi->i_chunk_size, i_stream_size );
 
     vlc_stream_Seek( p_demux->s, p_movi->i_chunk_pos + 12 );
     msg_Warn( p_demux, "creating index from LIST-movi, will take time !" );
@@ -2784,7 +2819,7 @@ static void AVI_IndexCreate( demux_t *p_demux )
 
     /* Only show dialog if AVI is > 10MB */
     i_dialog_update = vlc_tick_now();
-    if( stream_Size( p_demux->s ) > 10000000 )
+    if( i_stream_size > 10000000 )
     {
         p_dialog_id =
             vlc_dialog_display_progress( p_demux, false, 0.0, _("Cancel"),
@@ -2803,7 +2838,7 @@ static void AVI_IndexCreate( demux_t *p_demux )
                 break;
 
             double f_current = vlc_stream_Tell( p_demux->s );
-            double f_size    = stream_Size( p_demux->s );
+            double f_size    = i_stream_size;
             double f_pos     = f_current / f_size;
             vlc_dialog_update_progress( p_demux, p_dialog_id, f_pos );
 
@@ -3029,6 +3064,7 @@ static void AVI_ExtractSubtitle( demux_t *p_demux,
 
     p_indx = AVI_ChunkFind( p_strl, AVIFOURCC_indx, 0, false );
     avi_chunk_t ck;
+    AVI_ChunkInit( &ck );
     int64_t  i_position;
     unsigned i_size;
     if( p_indx )
@@ -3040,6 +3076,7 @@ static void AVI_ExtractSubtitle( demux_t *p_demux,
                 AVI_ChunkRead( p_demux->s, &ck, NULL  ) ||
                 ck.common.i_chunk_fourcc != AVIFOURCC_indx )
                 goto exit;
+
             p_indx = &ck.indx;
         }
 
@@ -3142,8 +3179,7 @@ exit:
     else
         msg_Warn( p_demux, "Failed to load an embedded subtitle" );
 
-    if( p_indx == &ck.indx )
-        AVI_ChunkClean( p_demux->s, &ck );
+    AVI_ChunkClean( p_demux->s, &ck );
 }
 
 static avi_track_t * AVI_GetVideoTrackForXsub( demux_sys_t *p_sys )

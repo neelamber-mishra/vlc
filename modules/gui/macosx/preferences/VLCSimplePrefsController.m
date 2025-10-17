@@ -50,6 +50,9 @@
 #import "library/VLCLibraryController.h"
 #import "library/VLCLibraryModel.h"
 #import "library/VLCLibraryDataTypes.h"
+#import "playqueue/VLCPlayQueueTableCellView.h"
+#import "views/VLCPlaybackEndViewController.h"
+#import "windows/video/VLCMainVideoViewController.h"
 
 static struct {
     const char iso[6];
@@ -400,8 +403,9 @@ create_toolbar_item(NSString *itemIdent, NSString *name, NSString *desc, NSStrin
 
     [_intf_playbackControlBox setTitle:_NS("Playback control")];
     [_intf_continueplaybackLabel setStringValue:_NS("Continue playback")];
+    [_intf_displayEndOfPlaybackViewCheckBox setTitle:_NS("Display end of playback view")];
     [_intf_statusIconCheckbox setTitle: _NS("Display VLC status menu icon")];
-    [_intf_largeFontInListsCheckbox setTitle: _NS("Use large text for list views")];
+    [_intf_displayTrackNumberPlayQueueCheckBox setTitle: _NS("Display album track numbers in play queue")];
 
     [_intf_playbackBehaviourBox setTitle:_NS("Playback behaviour")];
     [_intf_enableNotificationsCheckbox setTitle: _NS("Enable notifications on play queue item change")];
@@ -608,7 +612,8 @@ create_toolbar_item(NSString *itemIdent, NSString *name, NSString *desc, NSStrin
      **********************/
     NSUInteger sel = 0;
     const char *pref = NULL;
-    pref = [[[NSUserDefaults standardUserDefaults] objectForKey:@"language"] UTF8String];
+    NSUserDefaults * const defaults = NSUserDefaults.standardUserDefaults;
+    pref = [[defaults objectForKey:@"language"] UTF8String];
     for (int x = 0; x < ARRAY_SIZE(language_map); x++) {
         [_intf_languagePopup addItemWithTitle:toNSStr(language_map[x].name)];
         if (pref) {
@@ -625,6 +630,10 @@ create_toolbar_item(NSString *itemIdent, NSString *name, NSString *desc, NSStrin
     } else {
         [_intf_continueplaybackPopup setEnabled: YES];
     }
+
+    self.intf_displayEndOfPlaybackViewCheckBox.state = [defaults boolForKey:VLCPlaybackEndViewEnabledKey] ? NSControlStateValueOn : NSControlStateValueOff;
+
+    self.intf_displayTrackNumberPlayQueueCheckBox.state = [defaults boolForKey:VLCDisplayTrackNumberPlayQueueKey] ? NSControlStateValueOn : NSControlStateValueOff;
 
     [self setupButton:_intf_statusIconCheckbox forBoolValue: "macosx-statusicon"];
 
@@ -708,6 +717,8 @@ create_toolbar_item(NSString *itemIdent, NSString *name, NSString *desc, NSStrin
     [self setupButton:_video_videodecoCheckbox forBoolValue: "video-deco"];
     [self setupButton:_video_pauseWhenMinimizedCheckbox forBoolValue: "macosx-pause-minimized"];
     [self setupButton:_video_resizeToNativeSizeCheckbox forBoolValue: "macosx-video-autoresize"];
+    
+    self.video_useClassicLayoutCheckbox.state = [defaults boolForKey:VLCUseClassicVideoPlayerLayoutKey] ? NSControlStateValueOn : NSControlStateValueOff;
 
     [_video_devicePopup removeAllItems];
     i = 0;
@@ -952,6 +963,17 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         [defaults setObject:toNSStr(language_map[index].iso) forKey:@"language"];
         [VLCSimplePrefsController updateRightToLeftSettings];
 
+        const BOOL originalDisplayTrackNumberSetting = [defaults boolForKey:VLCDisplayTrackNumberPlayQueueKey];
+
+        [defaults setBool:self.intf_displayEndOfPlaybackViewCheckBox.state == NSControlStateValueOn
+                   forKey:VLCPlaybackEndViewEnabledKey];
+        [defaults setBool:self.intf_displayTrackNumberPlayQueueCheckBox.state == NSControlStateValueOn
+                   forKey:VLCDisplayTrackNumberPlayQueueKey];
+        
+        if (originalDisplayTrackNumberSetting != [defaults boolForKey:VLCDisplayTrackNumberPlayQueueKey]) {
+            [NSNotificationCenter.defaultCenter postNotificationName:VLCDisplayTrackNumberPlayQueueSettingChanged object:nil];
+        }
+
         config_PutInt("metadata-network-access", [_intf_artCheckbox state]);
 
         config_PutInt("macosx-statusicon", [_intf_statusIconCheckbox state]);
@@ -1008,6 +1030,9 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
 
         config_PutInt("macosx-pause-minimized", [_video_pauseWhenMinimizedCheckbox state]);
         config_PutInt("macosx-video-autoresize", [_video_resizeToNativeSizeCheckbox state]);
+        
+        [NSUserDefaults.standardUserDefaults setBool:self.video_useClassicLayoutCheckbox.state == NSControlStateValueOn
+                                              forKey:VLCUseClassicVideoPlayerLayoutKey];
 
         config_PutInt("embedded-video", [_video_embeddedCheckbox state]);
         config_PutInt("macosx-nativefullscreenmode", [_video_nativeFullscreenCheckbox state]);

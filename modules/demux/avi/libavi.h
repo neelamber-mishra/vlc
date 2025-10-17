@@ -19,6 +19,9 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#define AVIF_MAX_STREAMS 100 /* chunk storage index is twocc + 2 digits */
+                             /* and is a de-facto limit of 100 tracks */
+
 /* flags for use in <dwFlags> in AVIFileHdr */
 #define AVIF_HASINDEX       0x00000010  /* Index at end of file? */
 #define AVIF_MUSTUSEINDEX   0x00000020
@@ -253,6 +256,7 @@ int     AVI_ChunkRead( stream_t *,
                        avi_chunk_t *p_chk,
                        avi_chunk_t *p_father );
 void    AVI_ChunkClean( stream_t *, avi_chunk_t * );
+void    AVI_ChunkInit( avi_chunk_t * );
 
 int     AVI_ChunkCount_( avi_chunk_t *, vlc_fourcc_t, bool );
 void   *AVI_ChunkFind_ ( avi_chunk_t *, vlc_fourcc_t, int, bool );

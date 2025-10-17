@@ -40,6 +40,7 @@
 #include "util/shared_input_item.hpp"
 
 #include "medialibrary/mlqmltypes.hpp"
+#include "medialibrary/mlplaylistlistmodel.hpp"
 
 #include <QObject>
 #include <QStringList>
@@ -148,7 +149,6 @@ private:
     std::unique_ptr<HelpDialog> m_helpDialog;
     std::unique_ptr<AboutDialog> m_aboutDialog;
     std::unique_ptr<MediaInfoDialog> m_mediaInfoDialog;
-    std::unique_ptr<PlaylistsDialog> m_playlistDialog;
     std::unique_ptr<BookmarksDialog> m_bookmarkDialog;
     std::unique_ptr<PodcastConfigDialog> m_podcastDialog;
     std::unique_ptr<PluginDialog> m_pluginDialog;
@@ -170,14 +170,14 @@ private:
     void toggleDialogVisible(std::unique_ptr<T>& dialog);
 
 public slots:
-    void playlistsDialog();
-    void playlistsDialog( const QVariantList & listMedia );
+    void playlistsDialog( const QVariantList & listMedia, MLPlaylistListModel::PlaylistType type = MLPlaylistListModel::PLAYLIST_TYPE_ALL);
     void bookmarksDialog();
     void mediaInfoDialog( void );
     void mediaInfoDialog( const SharedInputItem& inputItem );
     void mediaInfoDialog( const PlaylistItem& pItem );
     void mediaInfoDialog( const MLItemId& itemId );
     void mediaCodecDialog();
+    bool questionDialog(const QString& text, const QString& title = {}) const;
     void prefsDialog();
     void firstRunDialog();
     void extendedDialog();

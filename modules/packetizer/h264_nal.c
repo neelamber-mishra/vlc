@@ -303,6 +303,8 @@ static bool h264_parse_sequence_parameter_set_rbsp( bs_t *p_bs,
     {
         /* chroma_format_idc */
         p_sps->i_chroma_idc = bs_read_ue( p_bs );
+        if( p_sps->i_chroma_idc > 3 )
+            return false;
         if( p_sps->i_chroma_idc == 3 )
             p_sps->b_separate_colour_planes_flag = bs_read1( p_bs );
         else
@@ -333,6 +335,8 @@ static bool h264_parse_sequence_parameter_set_rbsp( bs_t *p_bs,
                     {
                         /* delta_scale */
                         i_tmp = bs_read_se( p_bs );
+                        if(i_tmp < -128 || i_tmp > 127)
+                          return false;
                         i_nextscale = ( i_lastscale + i_tmp + 256 ) % 256;
                         /* useDefaultScalingMatrixFlag = ... */
                     }
@@ -351,8 +355,9 @@ static bool h264_parse_sequence_parameter_set_rbsp( bs_t *p_bs,
 
     /* Skip i_log2_max_frame_num */
     p_sps->i_log2_max_frame_num = bs_read_ue( p_bs );
-    if( p_sps->i_log2_max_frame_num > 12)
+    if( (uint_fast32_t) p_sps->i_log2_max_frame_num > 12)
         p_sps->i_log2_max_frame_num = 12;
+
     /* Read poc_type */
     p_sps->i_pic_order_cnt_type = bs_read_ue( p_bs );
     if( p_sps->i_pic_order_cnt_type == 0 )
@@ -558,20 +563,20 @@ static bool h264_parse_picture_parameter_set_rbsp( bs_t *p_bs,
     bs_skip( p_bs, 1 ); // entropy coding mode flag
     p_pps->i_pic_order_present_flag = bs_read( p_bs, 1 );
 
-    unsigned num_slice_groups = bs_read_ue( p_bs ) + 1;
-    if( num_slice_groups > 8 ) /* never has value > 7. Annex A, G & J */
+    unsigned num_slice_groups_minus1 = bs_read_ue( p_bs );
+    if( num_slice_groups_minus1 > 7 ) /* never has value > 7. Annex A, G & J */
         return false;
-    if( num_slice_groups > 1 )
+    if( num_slice_groups_minus1 > 0 )
     {
         unsigned slice_group_map_type = bs_read_ue( p_bs );
         if( slice_group_map_type == 0 )
         {
-            for( unsigned i = 0; i < num_slice_groups; i++ )
+            for( unsigned i = 0; i <= num_slice_groups_minus1; i++ )
                 bs_read_ue( p_bs ); /* run_length_minus1[group] */
         }
         else if( slice_group_map_type == 2 )
         {
-            for( unsigned i = 0; i < num_slice_groups; i++ )
+            for( unsigned i = 0; i < num_slice_groups_minus1; i++ )
             {
                 bs_read_ue( p_bs ); /* top_left[group] */
                 bs_read_ue( p_bs ); /* bottom_right[group] */
@@ -585,21 +590,22 @@ static bool h264_parse_picture_parameter_set_rbsp( bs_t *p_bs,
         else if( slice_group_map_type == 6 )
         {
             unsigned pic_size_in_maps_units = bs_read_ue( p_bs ) + 1;
-            unsigned sliceGroupSize = 1;
-            while(num_slice_groups > 1)
+            // Ceil( Log2( num_slice_groups_minus1 + 1 ) )
+            static const int ceil_log2_table[8] =
             {
-                sliceGroupSize++;
-                num_slice_groups = ((num_slice_groups - 1) >> 1) + 1;
-            }
-            for( unsigned i = 0; i < pic_size_in_maps_units; i++ )
-            {
-                bs_skip( p_bs, sliceGroupSize );
-            }
+                0,1,2,2,3,3,3,3
+            };
+            unsigned sliceGroupSize = ceil_log2_table[num_slice_groups_minus1];
+            // slice_group_id[]
+            bs_skip( p_bs, sliceGroupSize * pic_size_in_maps_units );
         }
     }
 
     p_pps->num_ref_idx_l01_default_active_minus1[0] = bs_read_ue( p_bs );
     p_pps->num_ref_idx_l01_default_active_minus1[1] = bs_read_ue( p_bs );
+    if (p_pps->num_ref_idx_l01_default_active_minus1[0] > 31 ||
+        p_pps->num_ref_idx_l01_default_active_minus1[1] > 31)
+        return false;
     p_pps->weighted_pred_flag = bs_read( p_bs, 1 );
     p_pps->weighted_bipred_idc = bs_read( p_bs, 2 );
     bs_read_se( p_bs ); /* pic_init_qp_minus26 */

@@ -29,6 +29,9 @@
 
 #import "main/VLCMain.h"
 
+#import "views/VLCBottomBarView.h"
+
+#import "windows/controlsbar/VLCMainWindowControlsBar.h"
 #import "windows/video/VLCMainVideoViewController.h"
 
 @interface VLCLibraryWindowSplitViewController ()
@@ -43,10 +46,11 @@
 {
     [super viewDidLoad];
 
-    [VLCMain.sharedInstance.libraryWindow.videoViewController.view addObserver:self
-                                                                    forKeyPath:@"hidden"
-                                                                       options:0
-                                                                       context:nil];
+    VLCLibraryWindow * const libraryWindow = VLCMain.sharedInstance.libraryWindow;
+    [libraryWindow.videoViewController.view addObserver:self
+                                            forKeyPath:@"hidden"
+                                               options:0
+                                               context:nil];
 
     self.splitView.wantsLayer = YES;
 
@@ -60,7 +64,16 @@
 
     _navSidebarItem = [NSSplitViewItem sidebarWithViewController:self.navSidebarViewController];
     _libraryTargetViewItem = [NSSplitViewItem splitViewItemWithViewController:self.libraryTargetViewController];
-    _multifunctionSidebarItem = [NSSplitViewItem sidebarWithViewController:self.multifunctionSidebarViewController];
+
+    if (@available(macOS 11.0, *)) {
+        if ([NSSplitViewItem respondsToSelector:@selector(inspectorWithViewController:)]) {
+            _multifunctionSidebarItem = [NSSplitViewItem performSelector:@selector(inspectorWithViewController:) withObject:self.multifunctionSidebarViewController];
+        } else {
+            _multifunctionSidebarItem = [NSSplitViewItem sidebarWithViewController:self.multifunctionSidebarViewController];
+        }
+    } else {
+        _multifunctionSidebarItem = [NSSplitViewItem sidebarWithViewController:self.multifunctionSidebarViewController];
+    }
 
     if (@available(macOS 11.0, *)) {
         _navSidebarItem.allowsFullHeightLayout = YES;
@@ -78,6 +91,16 @@
         NSSplitViewItemCollapseBehaviorPreferResizingSiblingsWithFixedSplitView;
 
     self.splitViewItems = @[_navSidebarItem, _libraryTargetViewItem, self.multifunctionSidebarItem];
+
+    VLCMainWindowControlsBar * const controlsBar = libraryWindow.controlsBar;
+    VLCBottomBarView * const bottomBarView = controlsBar.bottomBarView;
+    bottomBarView.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [bottomBarView.leadingAnchor constraintEqualToAnchor:self.libraryTargetViewController.view.leadingAnchor
+                                                    constant:VLCLibraryUIUnits.largeSpacing * 2],
+        [bottomBarView.trailingAnchor constraintEqualToAnchor:self.libraryTargetViewController.view.trailingAnchor
+                                                     constant:-(VLCLibraryUIUnits.largeSpacing * 2)],
+    ]];
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath
@@ -130,7 +153,9 @@
 
 - (BOOL)splitView:(NSSplitView *)splitView canCollapseSubview:(NSView *)subview
 {
-    return subview != self.navSidebarViewController.view || !self.mainVideoModeEnabled;
+    return subview != self.navSidebarViewController.view
+           || !self.mainVideoModeEnabled
+           || [super splitView:splitView canCollapseSubview:subview];
 }
 
 @end

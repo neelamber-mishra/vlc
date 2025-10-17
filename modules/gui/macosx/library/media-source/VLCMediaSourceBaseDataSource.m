@@ -21,6 +21,7 @@
  *****************************************************************************/
 
 #import "VLCMediaSourceBaseDataSource.h"
+#include <AppKit/AppKit.h>
 
 #import "VLCLibraryMediaSourceViewNavigationStack.h"
 #import "VLCMediaSourceProvider.h"
@@ -30,6 +31,8 @@
 #import "VLCMediaSourceDataSource.h"
 
 #import "extensions/NSString+Helpers.h"
+#import "extensions/NSTableCellView+VLCAdditions.h"
+#import "extensions/NSWindow+VLCAdditions.h"
 
 #import "library/VLCLibraryWindow.h"
 #import "library/VLCInputNodePathControl.h"
@@ -50,7 +53,6 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
 {
     NSArray<VLCMediaSource *> *_mediaSources;
     NSArray<VLCInputNode *> *_discoveredLANdevices;
-    BOOL _gridViewMode;
 }
 @end
 
@@ -61,6 +63,8 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
     self = [super init];
     if (self) {
         _mediaSources = @[];
+        _discoveredLANdevices = @[];
+        _mediaSourceMode = VLCMediaSourceModeLAN;
         NSNotificationCenter * const notificationCenter = NSNotificationCenter.defaultCenter;
         [notificationCenter addObserver:self
                                selector:@selector(mediaSourceChildrenReset:)
@@ -91,6 +95,21 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
 
 #pragma mark - view and model state management
 
+- (VLCLibraryViewModeSegment)viewMode
+{
+    VLCLibraryWindowPersistentPreferences * const libraryWindowPrefs =
+        VLCLibraryWindowPersistentPreferences.sharedInstance;
+
+    switch (_mediaSourceMode) {
+        case VLCMediaSourceModeLAN:
+            return libraryWindowPrefs.browseLibraryViewMode;
+        case VLCMediaSourceModeInternet:
+            return libraryWindowPrefs.streamLibraryViewMode;
+        default:
+            return VLCLibraryGridViewModeSegment;
+    }
+}
+
 - (void)setupViews
 {
     self.collectionView.dataSource = self;
@@ -120,20 +139,7 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
 
 - (void)reloadViews
 {
-    VLCLibraryViewModeSegment viewModeSegment = VLCLibraryGridViewModeSegment;
-    VLCLibraryWindowPersistentPreferences * const libraryWindowPrefs = VLCLibraryWindowPersistentPreferences.sharedInstance;
-
-    switch (_mediaSourceMode) {
-        case VLCMediaSourceModeLAN:
-            viewModeSegment = libraryWindowPrefs.browseLibraryViewMode;
-            break;
-        case VLCMediaSourceModeInternet:
-            viewModeSegment = libraryWindowPrefs.streamLibraryViewMode;
-            break;
-        default:
-            break;
-    }
-
+    const VLCLibraryViewModeSegment viewModeSegment = self.viewMode;
     if (viewModeSegment == VLCLibraryGridViewModeSegment) {
         self.collectionViewScrollView.hidden = NO;
         self.tableViewScrollView.hidden = YES;
@@ -145,6 +151,7 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
     } else {
         NSAssert(false, @"View mode must be grid or list mode");
     }
+    [self togglePathControlVisibility:self.childDataSource != nil];
 }
 
 - (void)loadMediaSources
@@ -161,8 +168,11 @@ NSString * const VLCMediaSourceBaseDataSourceNodeChanged = @"VLCMediaSourceBaseD
 
     for (VLCMediaSource * const mediaSource in mediaSources) {
         VLCInputNode * const rootNode = [mediaSource rootNode];
-        [mediaSource preparseInputNodeWithinTree:rootNode];
-        [self.navigationStack installHandlersOnMediaSource:mediaSource];
+        if (rootNode == nil)
+            continue;
+        NSError * const error = [mediaSource preparseInputNodeWithinTree:rootNode];
+        if (error == nil)
+            [self.navigationStack installHandlersOnMediaSource:mediaSource];
     }
 
     _mediaSources = mediaSources;
@@ -365,33 +375,71 @@ referenceSizeForHeaderInSection:(NSInteger)section
     return _mediaSources.count;
 }
 
-- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
+- (NSView *)tableView:(NSTableView *)tableView
+   viewForTableColumn:(NSTableColumn *)tableColumn
+                  row:(NSInteger)row
 {
-    VLCLibraryTableCellView * const cellView = [tableView makeViewWithIdentifier:VLCLibraryTableCellViewIdentifier owner:self];
-    cellView.primaryTitleTextField.hidden = YES;
-    cellView.secondaryTitleTextField.hidden = YES;
-    cellView.singlePrimaryTitleTextField.hidden = NO;
+    if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableNameColumn"]) {
+        VLCLibraryTableCellView * const cellView =
+            [tableView makeViewWithIdentifier:VLCLibraryTableCellViewIdentifier owner:self];
 
-    if (_mediaSourceMode == VLCMediaSourceModeLAN) {
-        VLCInputNode * const currentNode = _discoveredLANdevices[row];
-        VLCInputItem * const currentNodeInput = currentNode.inputItem;
-
-        NSURL * const artworkURL = currentNodeInput.artworkURL;
-        NSImage * const placeholder = [NSImage imageNamed:@"NXdefaultappicon"];
-        if (artworkURL) {
-            [cellView.representedImageView setImageURL:artworkURL placeholderImage:placeholder];
+        if (_mediaSourceMode == VLCMediaSourceModeLAN) {
+            VLCInputItem * const currentNodeInput = _discoveredLANdevices[row].inputItem;
+            NSURL * const artworkURL = currentNodeInput.artworkURL;
+            NSImage * const placeholder = [NSImage imageNamed:@"NXdefaultappicon"];
+            if (artworkURL) {
+                [cellView.representedImageView setImageURL:artworkURL placeholderImage:placeholder];
+            } else {
+                cellView.representedImageView.image = placeholder;
+            }
         } else {
-            cellView.representedImageView.image = placeholder;
+            cellView.representedImageView.image = [NSImage imageNamed:@"NXFollow"];
         }
 
-        cellView.singlePrimaryTitleTextField.stringValue = currentNodeInput.name;
-    } else {
-        VLCMediaSource * const mediaSource = _mediaSources[row];
-        cellView.singlePrimaryTitleTextField.stringValue = mediaSource.mediaSourceDescription;
-        cellView.representedImageView.image = [NSImage imageNamed:@"NXFollow"];
-    }
+        NSString * const name = _mediaSourceMode == VLCMediaSourceModeLAN
+            ? _discoveredLANdevices[row].inputItem.name
+            : _mediaSources[row].mediaSourceDescription;
 
-    return cellView;
+        cellView.primaryTitleTextField.hidden = YES;
+        cellView.secondaryTitleTextField.hidden = YES;
+        cellView.singlePrimaryTitleTextField.hidden = NO;
+        cellView.singlePrimaryTitleTextField.stringValue = name;
+        return cellView;
+    } else if ([tableColumn.identifier isEqualToString:@"VLCMediaSourceTableKindColumn"]) {
+        static NSString * const basicCellViewIdentifier = @"BasicTableCellViewIdentifier";
+        NSTableCellView *cellView =
+            [tableView makeViewWithIdentifier:basicCellViewIdentifier owner:self];
+        if (cellView == nil) {
+            cellView = [NSTableCellView tableCellViewWithIdentifier:basicCellViewIdentifier
+                                                      showingString:@""];
+        }
+        NSAssert(cellView, @"Cell view should not be nil");
+
+        if (_mediaSourceMode == VLCMediaSourceModeLAN) {
+            VLCInputItem * const currentNodeInput = _discoveredLANdevices[row].inputItem;
+            if (currentNodeInput.inputType == ITEM_TYPE_DIRECTORY) {
+                cellView.textField.stringValue = _NS("Directory");
+            }
+        } else {
+            VLCMediaSource * const mediaSource = _mediaSources[row];
+            switch(mediaSource.category) {
+                case SD_CAT_DEVICES:
+                    cellView.textField.stringValue = _NS("Devices");
+                    break;
+                case SD_CAT_LAN:
+                    cellView.textField.stringValue = _NS("LAN");
+                    break;
+                case SD_CAT_INTERNET:
+                    cellView.textField.stringValue = _NS("Internet");
+                    break;
+                case SD_CAT_MYCOMPUTER:
+                    cellView.textField.stringValue = _NS("My Computer");
+                    break;
+            }
+        }
+        return cellView;
+    }
+    return nil;
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification
@@ -432,9 +480,16 @@ referenceSizeForHeaderInSection:(NSInteger)section
         return;
     }
 
-    [mediaSource preparseInputNodeWithinTree:node];
+    NSError * const error = [mediaSource preparseInputNodeWithinTree:node];
+    if (error) {
+        NSAlert * const alert = [NSAlert alertWithError:error];
+        alert.alertStyle = NSAlertStyleCritical;
+        [alert runModal];
+        return;
+    }
     
-    VLCMediaSourceDataSource * const newChildDataSource = [[VLCMediaSourceDataSource alloc] init];
+    VLCMediaSourceDataSource * const newChildDataSource =
+        [[VLCMediaSourceDataSource alloc] initWithParentBaseDataSource:self];
     
     newChildDataSource.displayedMediaSource = mediaSource;
     newChildDataSource.nodeToDisplay = node;
@@ -442,7 +497,6 @@ referenceSizeForHeaderInSection:(NSInteger)section
     newChildDataSource.pathControl = self.pathControl;
     newChildDataSource.tableView = self.tableView;
     newChildDataSource.navigationStack = self.navigationStack;
-    newChildDataSource.parentBaseDataSource = self;
 
     [self setChildDataSource:newChildDataSource];
     [self.navigationStack appendCurrentLibraryState];
@@ -485,10 +539,10 @@ referenceSizeForHeaderInSection:(NSInteger)section
 
 - (void)togglePathControlVisibility:(BOOL)visible
 {
-    _pathControlVisualEffectView.hidden = !visible;
+    _pathControlContainerView.hidden = !visible;
 
-    const CGFloat pathControlVisualEffectViewHeight = _pathControlVisualEffectView.frame.size.height;
-    const CGFloat scrollViewsTopSpace = visible ? pathControlVisualEffectViewHeight : 0;
+    const CGFloat pathControlContainerViewHeight = _pathControlContainerView.frame.size.height;
+    const CGFloat scrollViewsTopSpace = visible ? pathControlContainerViewHeight : 0;
 
     NSEdgeInsets scrollViewInsets = VLCLibraryUIUnits.libraryViewScrollViewContentInsets;
     scrollViewInsets.top += scrollViewsTopSpace;
@@ -499,8 +553,8 @@ referenceSizeForHeaderInSection:(NSInteger)section
     _collectionViewScrollView.scrollerInsets = scrollerInsets;
 
     _tableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _tableViewScrollView.contentInsets = scrollViewInsets;
-    _tableViewScrollView.scrollerInsets = scrollerInsets;
+    _tableViewScrollView.contentInsets =
+        NSEdgeInsetsMake(scrollViewsTopSpace + _tableViewScrollView.window.titlebarHeight, 0, 0, 0);
 }
 
 - (void)returnHome
@@ -570,7 +624,7 @@ referenceSizeForHeaderInSection:(NSInteger)section
 
 - (void)reloadDataForNotification:(NSNotification *)aNotification
 {
-    if (_gridViewMode) {
+    if (self.viewMode == VLCLibraryGridViewModeSegment) {
         if (self.collectionView.dataSource == self) {
             const NSInteger index = [_mediaSources indexOfObject:aNotification.object];
             if (self.collectionView.numberOfSections > index) {
@@ -591,7 +645,7 @@ referenceSizeForHeaderInSection:(NSInteger)section
 
 - (void)reloadData
 {
-    if (_gridViewMode) {
+    if (self.viewMode == VLCLibraryGridViewModeSegment) {
         [self.collectionView reloadData];
     } else {
         [self.tableView reloadData];

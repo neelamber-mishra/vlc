@@ -27,8 +27,10 @@
 #import "extensions/NSColor+VLCAdditions.h"
 #import "extensions/NSImage+VLCAdditions.h"
 #import "extensions/NSString+Helpers.h"
+#import "extensions/NSView+VLCAdditions.h"
 
 #import "library/VLCInputItem.h"
+#import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
 
 #import "main/VLCMain.h"
@@ -38,6 +40,7 @@
 #import "playqueue/VLCPlayQueueModel.h"
 #import "playqueue/VLCPlayerController.h"
 
+#import "views/VLCBottomBarView.h"
 #import "views/VLCTimeField.h"
 #import "views/VLCTrackingView.h"
 #import "views/VLCVolumeSlider.h"
@@ -62,6 +65,24 @@
 - (void)awakeFromNib
 {
     [super awakeFromNib];
+
+    if (@available(macOS 26.0, *)) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+        NSGlassEffectView * const glassEffectView = [[NSGlassEffectView alloc] init];
+        glassEffectView.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.bottomBarView addSubview:glassEffectView positioned:NSWindowBelow relativeTo:self.dropView];
+        [self.visualEffectView removeFromSuperview];
+        glassEffectView.contentView = self.dropView;
+        [glassEffectView applyConstraintsToFillSuperview];
+        glassEffectView.cornerRadius = CGFLOAT_MAX;
+        self.bottomBarView.drawBorder = NO;
+#endif
+    } else {
+        self.visualEffectView.wantsLayer = YES;
+        self.visualEffectView.layer.cornerRadius = VLCLibraryUIUnits.cornerRadius;
+        self.visualEffectView.layer.masksToBounds = YES;
+    }
+
     _playQueueController = VLCMain.sharedInstance.playQueueController;
     _playerController = _playQueueController.playerController;
 
@@ -201,6 +222,19 @@
     self.prevButton.enabled = b_seekable || _playQueueController.hasPreviousPlayQueueItem;
     self.nextButton.enabled = b_seekable || _playQueueController.hasNextPlayQueueItem;
     [self updateCurrentItemDisplayControls:notification];
+
+    VLCMediaLibraryMediaItem * const currentMlItem = _playerController.currentMediaLibraryItem;
+    self.favoriteButton.hidden = currentMlItem == nil;
+    self.favoriteButton.state = currentMlItem.favorited ? NSControlStateValueOn : NSControlStateValueOff;
+    self.favoriteButton.toolTip = currentMlItem.favorited ? _NS("Unmark as Favorite") : _NS("Mark as Favorite");
+}
+
+- (void)toggleFavorite:(id)sender
+{
+    const NSControlStateValue buttonStartState = self.favoriteButton.state;
+    VLCMediaLibraryMediaItem * const mediaItem = [_playerController currentMediaLibraryItem];
+    if (mediaItem == nil || [mediaItem toggleFavorite] != VLC_SUCCESS)
+        self.favoriteButton.state = buttonStartState;
 }
 
 @end

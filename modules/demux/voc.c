@@ -229,15 +229,13 @@ static int ReadBlockHeader( demux_t *p_demux )
             }
 
             new_fmt.audio.i_channels = 1;
-            new_fmt.audio.i_bytes_per_frame *= new_fmt.audio.i_channels;
             new_fmt.audio.i_blockalign = new_fmt.audio.i_bytes_per_frame;
 
             new_fmt.audio.i_frame_length = new_fmt.audio.i_bytes_per_frame * 8
                                          / new_fmt.audio.i_bitspersample;
 
             new_fmt.audio.i_rate = fix_voc_sr( 1000000L / (256L - buf[0]) );
-            new_fmt.i_bitrate = new_fmt.audio.i_rate * new_fmt.audio.i_bitspersample
-                              * new_fmt.audio.i_channels;
+            new_fmt.i_bitrate = new_fmt.audio.i_rate * new_fmt.audio.i_bitspersample;
 
             break;
 
@@ -308,6 +306,7 @@ static int ReadBlockHeader( demux_t *p_demux )
             }
 
             new_fmt.i_codec = VLC_CODEC_U8;
+            static_assert( INPUT_CHAN_MAX > 32, "INPUT_CHAN_MAX too small" );
             if (buf[3] >= 32)
                 goto corrupt;
             new_fmt.audio.i_channels = buf[3] + 1; /* can't be nul */
@@ -351,7 +350,7 @@ static int ReadBlockHeader( demux_t *p_demux )
                 goto corrupt;
 
             new_fmt.audio.i_rate = GetDWLE( buf );
-            if( !new_fmt.audio.i_rate )
+            if( new_fmt.audio.i_rate == 0 || new_fmt.audio.i_rate > 768000 )
                 goto corrupt;
             new_fmt.audio.i_bitspersample = buf[4];
             new_fmt.audio.i_channels = buf[5];
@@ -402,6 +401,11 @@ static int ReadBlockHeader( demux_t *p_demux )
             if( new_fmt.audio.i_channels == 0 )
             {
                 msg_Err( p_demux, "0 channels detected" );
+                return VLC_EGENERIC;
+            }
+            if ( new_fmt.audio.i_channels > INPUT_CHAN_MAX )
+            {
+                msg_Err( p_demux, "too many channels detected %" PRIu8, new_fmt.audio.i_channels );
                 return VLC_EGENERIC;
             }
 

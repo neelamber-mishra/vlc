@@ -88,9 +88,10 @@ typedef struct
     uint32_t i_sample_size_override;
     const MP4_Box_t *p_asf;
     uint8_t     rgi_chans_reordering[AOUT_CHAN_MAX];
-    bool        b_chans_reorder;
+    uint8_t     i_chans_to_reorder;
 
     bool b_forced_spu; /* forced track selection (never done by default/priority) */
+    bool b_ignore_implicit_pts;
 
     uint32_t    i_block_flags;
 } track_config_t;
@@ -109,12 +110,13 @@ typedef struct
     uint32_t i_switch_group;
 
     bool b_mac_encoding;
+    bool b_ignore_implicit_pts;
 
     es_format_t fmt;
     uint32_t    i_block_flags;
     uint32_t    i_next_block_flags;
     uint8_t     rgi_chans_reordering[AOUT_CHAN_MAX];
-    bool        b_chans_reorder;
+    uint8_t     i_chans_to_reorder;
     es_out_id_t *p_es;
 
     /* display size only ! */
@@ -137,7 +139,7 @@ typedef struct
     stime_t          i_next_dts;
     int64_t          i_cts_shift;
     vlc_tick_t       i_pts_offset;
-    stime_t          i_decoder_delay;
+    stime_t          i_decoder_delay; /* track timescale */
     /* give the next sample to read, i_chunk is to find quickly where
       the sample is located */
     uint32_t         i_sample;       /* next sample to read */

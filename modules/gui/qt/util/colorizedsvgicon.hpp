@@ -20,36 +20,8 @@
 
 #include <QIcon>
 
-#include "util/color_svg_image_provider.hpp"
-
-#include <QMutex>
-
-#include <optional>
-
 class ColorizedSvgIcon : public QIcon
 {
-    QIconEngine *m_engine = nullptr;
-
-    inline static QMutex engineLock;
-    inline static QIconEngine *lastEngine; // static variables are initialized by default
-
-    static QIconEngine *newEngine()
-    {
-        engineLock.lock();
-        assert(!lastEngine);
-        lastEngine = svgIconEngine();
-        return lastEngine;
-    }
-
-    void captureEngine()
-    {
-        assert(!m_engine);
-        assert(lastEngine);
-        m_engine = lastEngine;
-        lastEngine = nullptr;
-        engineLock.unlock();
-    }
-
     static int hashKey(QIcon::Mode mode, QIcon::State state)
     {
         // From QSvgIconEnginePrivate:
@@ -57,10 +29,10 @@ class ColorizedSvgIcon : public QIcon
     }
 
 public:
-    explicit ColorizedSvgIcon(QString filename,
-                              std::optional<QColor> color1 = std::nullopt,
-                              std::optional<QColor> color2 = std::nullopt,
-                              std::optional<QColor> accentColor = std::nullopt,
+    explicit ColorizedSvgIcon(const QString& filename,
+                              const QColor color1 = {},
+                              const QColor color2 = {},
+                              const QColor accentColor = {},
                               const QList<QPair<QString, QString>>& otherReplacements = {});
 
     [[nodiscard]] static ColorizedSvgIcon colorizedIconForWidget(const QString& fileName, const QWidget *widget);

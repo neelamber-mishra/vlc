@@ -234,20 +234,23 @@ void VideoSurface::synchronize()
     QSizeF size;
     QPointF position;
 
-    if (QThread::currentThread() == thread())
+    static const bool isObjectThread = QThread::currentThread() == thread();
+    if (isObjectThread)
     {
+        assert(QThread::currentThread() == thread());
         // Item's thread (GUI thread):
         size = this->size();
         position = this->mapToScene(QPointF(0,0));
     }
     else
     {
+        assert(QThread::currentThread() != thread());
         // Render thread:
         size = renderSize();
         position = renderPosition();
     }
 
-    if (m_oldRenderSize != size || m_dprDirty)
+    if (m_allDirty || m_dprDirty || m_oldRenderSize != size)
     {
         if (!size.isEmpty())
         {
@@ -256,7 +259,7 @@ void VideoSurface::synchronize()
         }
     }
 
-    if (m_oldRenderPosition != position || m_dprDirty)
+    if (m_allDirty || m_dprDirty || m_oldRenderPosition != position)
     {
         if (position.x() >= 0.0 && position.y() >= 0.0)
         {
@@ -265,20 +268,53 @@ void VideoSurface::synchronize()
         }
     }
 
-    if (m_dprDirty)
+    if (m_allDirty || m_dprDirty)
     {
         emit surfaceScaleChanged(m_dpr);
         m_dprDirty = false;
     }
+
+    m_allDirty = false;
 }
 
 void VideoSurface::itemChange(ItemChange change, const ItemChangeData &value)
 {
-    if (change == ItemDevicePixelRatioHasChanged || change == ItemSceneChange)
+    switch (change)
     {
-        m_dprChanged = true;
-        // Request update, so that `updatePaintNode()` gets called which updates the DPR for `::synchronize()`:
-        update();
+        case ItemSceneChange:
+        {
+            // It is intentional that window connection is made in `::updatePaintNode()`, and not here, because we don't
+            // want to explicitly connect whenever `ItemHasContents`, `isVisible()`, `window()` are all satisfied, which
+            // is implicitly the case with `::updatePaintNode()` (it is only called when all these are satisfied). This
+            // is strictly for maintenance reasons.
+
+            disconnect(m_synchConnection);
+
+            // if window changed but is valid, we can signal dpr change just to be sure, It is not clear if Qt signals
+            // ItemDevicePixelRatioHasChanged when item's window/scene changes to a new window that has different DPR:
+            if (value.window)
+                [[fallthrough]];
+            else
+                break;
+        }
+        case ItemDevicePixelRatioHasChanged:
+        {
+            m_dprChanged = true;
+            // Request update, so that `updatePaintNode()` gets called which updates the DPR for `::synchronize()`:
+            if (flags().testFlag(ItemHasContents)) // "Only items which specify QQuickItem::ItemHasContents are allowed to call QQuickItem::update()."
+                update();
+            break;
+        }
+        case ItemVisibleHasChanged:
+        {
+            if (!value.boolValue)
+            {
+                // Connection is made in `::updatePaintNode()` (which is called when both the item is visible and `ItemHasContents` is set).
+                disconnect(m_synchConnection);
+            }
+            break;
+        }
+        default: break;
     }
 
     QQuickItem::itemChange(change, value);
@@ -294,12 +330,18 @@ void VideoSurface::setVideoSurfaceProvider(VideoSurfaceProvider *newVideoSurface
         disconnect(this, nullptr, m_provider, nullptr);
         disconnect(&m_wheelEventConverter, nullptr, m_provider, nullptr);
         disconnect(m_provider, nullptr, this, nullptr);
+
+        assert(m_provider->videoSurface() == this);
+        m_provider->setVideoSurface({});
     }
 
     m_provider = newVideoSurfaceProvider;
 
     if (m_provider)
     {
+        if (const auto current = m_provider->videoSurface())
+            current->setVideoSurfaceProvider(nullptr); // it is probably not a good idea to break the QML binding here
+
         connect(this, &VideoSurface::mouseMoved, m_provider, &VideoSurfaceProvider::onMouseMoved);
         connect(this, &VideoSurface::mousePressed, m_provider, &VideoSurfaceProvider::onMousePressed);
         connect(this, &VideoSurface::mouseDblClicked, m_provider, &VideoSurfaceProvider::onMouseDoubleClick);
@@ -309,13 +351,30 @@ void VideoSurface::setVideoSurfaceProvider(VideoSurfaceProvider *newVideoSurface
         connect(this, &VideoSurface::surfacePositionChanged, m_provider, &VideoSurfaceProvider::surfacePositionChanged, Qt::DirectConnection);
         connect(this, &VideoSurface::surfaceScaleChanged, m_provider, &VideoSurfaceProvider::surfaceScaleChanged, Qt::DirectConnection);
 
+        // With auto connection, this should be queued if the signal was emitted from vout thread,
+        // so that the slot is executed in item's thread:
+        connect(m_provider, &VideoSurfaceProvider::videoEnabledChanged, this, [this](bool enabled) {
+            if (enabled)
+            {
+                m_videoEnabledChanged = true;
+                if (flags().testFlag(ItemHasContents)) // "Only items which specify QQuickItem::ItemHasContents are allowed to call QQuickItem::update()."
+                    update();
+            }
+        });
+
         connect(&m_wheelEventConverter, &WheelToVLCConverter::vlcWheelKey, m_provider, &VideoSurfaceProvider::onMouseWheeled);
 
+        assert(!m_provider->videoSurface());
+        m_provider->setVideoSurface(this);
+
         setFlag(ItemHasContents, true);
+        update(); // this should not be necessary right after setting `ItemHasContents`, but just in case
     }
     else
     {
         setFlag(ItemHasContents, false);
+        // Connection is made in `::updatePaintNode()` (which is called when both the item is visible and `ItemHasContents` is set).
+        disconnect(m_synchConnection);
     }
 
     emit videoSurfaceProviderChanged();
@@ -334,25 +393,19 @@ QSGNode *VideoSurface::updatePaintNode(QSGNode *node, UpdatePaintNodeData *data)
     if (Q_UNLIKELY(!m_provider))
         return node;
 
-    if (w != m_oldWindow)
+    if (!m_synchConnection)
     {
-        if (m_oldWindow)
-            disconnect(m_synchConnection);
+        // Disconnection is made in `::itemChange()`'s `ItemSceneChange` handler.
 
-        m_oldWindow = w;
-
-        if (w)
+        // This is constant:
+        if (m_provider->supportsThreadedSurfaceUpdates())
         {
-            // This is constant:
-            if (m_provider->supportsThreadedSurfaceUpdates())
-            {
-                // Synchronize just before swapping the frame for better synchronization:
-                m_synchConnection = connect(w, &QQuickWindow::afterRendering, this, &VideoSurface::synchronize, Qt::DirectConnection);
-            }
-            else
-            {
-                m_synchConnection = connect(w, &QQuickWindow::afterAnimating, this, &VideoSurface::synchronize);
-            }
+            // Synchronize just before swapping the frame for better synchronization:
+            m_synchConnection = connect(w, &QQuickWindow::afterRendering, this, &VideoSurface::synchronize, Qt::DirectConnection);
+        }
+        else
+        {
+            m_synchConnection = connect(w, &QQuickWindow::afterAnimating, this, &VideoSurface::synchronize);
         }
     }
 
@@ -361,6 +414,12 @@ QSGNode *VideoSurface::updatePaintNode(QSGNode *node, UpdatePaintNodeData *data)
         m_dpr = w->effectiveDevicePixelRatio();
         m_dprDirty = true;
         m_dprChanged = false;
+    }
+
+    if (m_videoEnabledChanged)
+    {
+        m_allDirty = true;
+        m_videoEnabledChanged = false;
     }
 
     return ViewBlockingRectangle::updatePaintNode(node, data);

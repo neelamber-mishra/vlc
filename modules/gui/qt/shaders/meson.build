@@ -13,15 +13,19 @@ shader_sources = [
     'Noise.frag',
     'RectFilter.frag',
     'SubTexture.vert',
-    'HollowRectangularGlow.frag',
-    'RectangularGlow.frag',
     'SDFAARoundedTexture.frag',
     'SDFAARoundedTexture_cropsupport_bordersupport.frag',
     'DitheredTexture.frag',
     'FastBlend.frag',
     'FastBlend_additive.frag',
     'FastBlend_multiply.frag',
-    'FastBlend_screen.frag'
+    'FastBlend_screen.frag',
+    'RoundedRectangleShadow.frag',
+    'RoundedRectangleShadow_hollow.frag',
+    'VoronoiSnow.frag',
+    'DualKawaseBlur_downsample.frag',
+    'DualKawaseBlur_upsample.frag',
+    'DualKawaseBlur_upsample_postprocess.frag',
 ]
 
 shader_files = files(shader_sources)

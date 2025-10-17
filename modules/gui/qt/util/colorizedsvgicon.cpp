@@ -24,29 +24,35 @@
 #include <QPointer>
 #include <QWidget>
 #include <QFileInfo>
+#include <QThread>
+#include <QApplication>
 
-ColorizedSvgIcon::ColorizedSvgIcon(QString filename, std::optional<QColor> color1, std::optional<QColor> color2, std::optional<QColor> accentColor, const QList<QPair<QString, QString> > &otherReplacements)
-    : QIcon(newEngine()) // QIcon takes the ownership of the icon engine
+#include "util/color_svg_image_provider.hpp"
+
+ColorizedSvgIcon::ColorizedSvgIcon(const QString& filename, const QColor color1, const QColor color2, const QColor accentColor, const QList<QPair<QString, QString> > &otherReplacements)
 {
-    captureEngine();
+    QIcon& qIconRef = *this;
 
-    if (!m_engine)
+    const auto engine = svgIconEngine();
+    if (!engine)
     {
         qWarning() << "ColorizedSvgIcon: could not create svg icon engine, icon " << filename << " will not be colorized.";
-        addFile(filename);
+        qIconRef = QIcon(filename);
         return;
     }
 
+    qIconRef = QIcon(engine); // QIcon takes the ownership of the engine
+
     QList<QPair<QString, QString>> replacements;
     {
-        if (color1.has_value())
-            replacements.push_back({QStringLiteral(COLOR1_KEY), color1->name(QColor::HexRgb)});
+        if (color1.isValid())
+            replacements.push_back({QStringLiteral(COLOR1_KEY), color1.name(QColor::HexRgb)});
 
-        if (color2.has_value())
-            replacements.push_back({QStringLiteral(COLOR2_KEY), color2->name(QColor::HexRgb)});
+        if (color2.isValid())
+            replacements.push_back({QStringLiteral(COLOR2_KEY), color2.name(QColor::HexRgb)});
 
-        if (accentColor.has_value())
-            replacements.push_back({QStringLiteral(COLOR_ACCENT_KEY), accentColor->name(QColor::HexRgb)});
+        if (accentColor.isValid())
+            replacements.push_back({QStringLiteral(COLOR_ACCENT_KEY), accentColor.name(QColor::HexRgb)});
 
         replacements.append(otherReplacements.begin(), otherReplacements.end());
     }
@@ -78,7 +84,7 @@ ColorizedSvgIcon::ColorizedSvgIcon(QString filename, std::optional<QColor> color
     {
         // Feed the engine with the colorized svg content:
         QDataStream in(std::as_const(data)); // read-only
-        if (!m_engine->read(in))
+        if (!engine->read(in))
         {
             qWarning() << "ColorizedSvgIcon: svg icon engine can not read contents, icon " << filename << " will not be colorized.";
             addFile(filename);
@@ -95,22 +101,32 @@ ColorizedSvgIcon ColorizedSvgIcon::colorizedIconForWidget(const QString &fileNam
 
 QIconEngine *ColorizedSvgIcon::svgIconEngine()
 {
-    static const auto plugin = []() -> QPointer<QIconEnginePlugin> {
-#ifdef QT_STATIC
-        const auto& staticPlugins = QPluginLoader::staticInstances();
-        const auto it = std::find_if(staticPlugins.begin(), staticPlugins.end(), [](QObject *obj) -> bool {
-            return obj->inherits("QSvgIconPlugin");
-        });
+    static const auto plugin = []() {
+        QPointer<QIconEnginePlugin> plugin;
 
-        if (it != staticPlugins.end())
-            return qobject_cast<QIconEnginePlugin*>(*it);
-        else
-            return nullptr;
+        const auto retrieve = [&plugin]() {
+#ifdef QT_STATIC
+            const auto& staticPlugins = QPluginLoader::staticInstances();
+            const auto it = std::find_if(staticPlugins.begin(), staticPlugins.end(), [](QObject *obj) -> bool {
+                return obj->inherits("QSvgIconPlugin");
+            });
+
+            if (it != staticPlugins.end())
+                plugin = qobject_cast<QIconEnginePlugin*>(*it);
 #else
-        QPluginLoader loader(QStringLiteral("iconengines/qsvgicon")); // Official Qt plugin
-        // No need to check the metadata (or inherits `QSvgIconPlugin`), a plugin named "qsvgicon" should already support svg.
-        return qobject_cast<QIconEnginePlugin*>(loader.instance());
+            QPluginLoader loader(QStringLiteral("iconengines/qsvgicon")); // Official Qt plugin
+            // No need to check the metadata (or inherits `QSvgIconPlugin`), a plugin named "qsvgicon" should already support svg.
+            plugin = qobject_cast<QIconEnginePlugin*>(loader.instance());
 #endif
+        };
+
+        assert(qApp); // do not call before QApplication is constructed.
+        if (QThread::currentThread() == qApp->thread())
+            retrieve();
+        else
+            QMetaObject::invokeMethod(qApp, retrieve, Qt::BlockingQueuedConnection);
+
+        return plugin;
     }();
 
     if (!plugin)

@@ -49,6 +49,13 @@ FocusScope {
     //behave like a page
     property var pagePrefix: []
 
+    property alias displayMarginBeginning: artistList.displayMarginBeginning
+    property alias displayMarginEnd: artistList.displayMarginEnd
+
+    // Currently only respected by the list view:
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     readonly property bool hasGridListMode: true
     readonly property bool isSearchable: true
 
@@ -179,6 +186,11 @@ FocusScope {
             fadingEdge.backgroundColor: artistListBackground.usingAcrylic ? "transparent"
                                                                           : artistListBackground.alternativeColor
 
+            fadingEdge.enableBeginningFade: root.enableBeginningFade
+            fadingEdge.enableEndFade: root.enableEndFade
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
 
             onCurrentIndexChanged: {
                 if (!artistList._sidebarInitialyPositioned)
@@ -245,9 +257,6 @@ FocusScope {
                 }
             }
 
-            // To get blur effect while scrolling in mainview
-            displayMarginEnd: g_mainDisplay.displayMargin
-
             Navigation.parentItem: root
 
             Navigation.rightAction: function() {
@@ -309,11 +318,15 @@ FocusScope {
                     right: parent.right
                 }
 
+                z: 1
+
                 sourceWidth: root.width
                 targetWidth: artistList.width
 
+                visible: !VLCStyle.isScreenSmall
+
                 onWidthFactorChanged: {
-                    if (!_inhibitMainCtxUpdate)
+                    if (!_inhibitMainCtxUpdate && visible)
                         MainCtx.artistAlbumsWidthFactor = widthFactor
                 }
 
@@ -353,6 +366,12 @@ FocusScope {
 
             Layout.fillHeight: true
             Layout.fillWidth: true
+
+            enableBeginningFade: root.enableBeginningFade
+            enableEndFade: root.enableEndFade
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
 
             rightPadding: root.rightPadding
 

@@ -49,7 +49,7 @@ public:
 private:
     QComboBox *profileBox;
     void fillProfilesCombo();
-    void editProfile( const QString&, const QString& );
+    void editProfilePrivate( const QString&, const QString& );
     void saveProfiles();
     QString mux;
     SoutChain transcode;
@@ -84,8 +84,8 @@ private:
     QHash<QString, resultset> caps;
     void loadCapabilities();
     void reset();
-protected slots:
-    void close() override;
+public slots:
+    void accept() override;
 private slots:
     void muxSelected();
     void codecSelected();

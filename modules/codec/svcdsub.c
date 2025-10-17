@@ -53,7 +53,7 @@ vlc_module_begin ()
 
     add_submodule ()
     set_description( N_("Philips OGT (SVCD subtitle) packetizer") )
-    set_capability( "packetizer", 50 )
+    set_capability( "spu packetizer", 50 )
     set_callbacks( PacketizerOpen, DecoderClose )
 vlc_module_end ()
 
@@ -89,10 +89,7 @@ typedef struct
 
   uint16_t i_image_offset;      /* offset from subtitle_data to compressed
                                    image data */
-  size_t i_image_length;           /* size of the compressed image data */
   size_t second_field_offset;      /* offset of odd raster lines */
-  size_t metadata_offset;          /* offset to data describing the image */
-  size_t metadata_length;          /* length of metadata */
 
   vlc_tick_t i_duration;   /* how long to display the image, 0 stands
                            for "until next subtitle" */
@@ -417,16 +414,14 @@ static void ParseHeader( decoder_t *p_dec, block_t *p_block )
     p_sys->second_field_offset = GETINT16(p);
     i_buffer -= 2;
     p_sys->i_image_offset  = p - p_block->p_buffer;
-    p_sys->i_image_length  = p_sys->i_spu_size - p_sys->i_image_offset;
-    p_sys->metadata_length = p_sys->i_image_offset;
 
 #ifndef NDEBUG
     msg_Dbg( p_dec, "x-start: %d, y-start: %d, width: %d, height %d, "
-             "spu size: %zu, duration: %"PRIu64" (d:%zu p:%"PRIu16")",
+             "spu size: %zu, duration: %"PRIu64" (p:%"PRIu16")",
              p_sys->i_x_start, p_sys->i_y_start,
              p_sys->i_width, p_sys->i_height,
              p_sys->i_spu_size, p_sys->i_duration,
-             p_sys->i_image_length, p_sys->i_image_offset);
+             p_sys->i_image_offset);
 
     for( i = 0; i < 4; i++ )
     {
@@ -542,7 +537,7 @@ static void SVCDSubRenderImage( decoder_t *p_dec, block_t *p_data,
                 i_color = bs_read( &bs, 2 );
                 if( i_color == 0 && (i_count = bs_read( &bs, 2 )) )
                 {
-                    i_count = __MIN( i_count, p_sys->i_width - i_column );
+                    i_count = __MIN( i_count, p_sys->i_width - i_column - 1 );
                     memset( &p_dest[i_row * dst_pic->Y_PITCH +
                                     i_column], 0, i_count + 1 );
                     i_column += i_count;

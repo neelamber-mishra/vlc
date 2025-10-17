@@ -33,8 +33,6 @@
 
 #include <functional>
 
-class VLCTick;
-
 class VideoDescription
 {
     Q_GADGET
@@ -117,12 +115,9 @@ public:
 
     bool isNew() const;
     void setIsNew(bool isNew);
-    bool isFavorite() const;
-    void setIsFavorite(bool isFavorite);
     void setSmallCover(vlc_ml_thumbnail_status_t status, QString mrl);
     QString getResolutionName() const;
     QString getChannel() const;
-    QString getMRL() const;
     QString getDisplayMRL() const;
     QList<AudioDescription> getAudioDesc() const;
     QList<VideoDescription> getVideoDesc() const;
@@ -130,8 +125,6 @@ public:
 
 private:
     bool m_isNew;
-    bool m_isFavorite;
-    QUrl m_mrl;
     QString m_resolution;
     QString m_channel;
     QList<AudioDescription> m_audioDesc;

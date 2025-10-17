@@ -37,6 +37,13 @@ MainViewLoader {
     readonly property int contentLeftMargin: currentItem?.contentLeftMargin ?? 0
     readonly property int contentRightMargin: currentItem?.contentRightMargin ?? 0
 
+    property int displayMarginBeginning: 0
+    property int displayMarginEnd: 0
+
+    // Currently only respected by the list view:
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     property alias parentId: artistModel.parentId
     property alias searchPattern: artistModel.searchPattern
     property alias sortOrder: artistModel.sortOrder
@@ -105,6 +112,9 @@ MainViewLoader {
             model: artistModel
             focus: true
 
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
             headerDelegate: root.header
             Navigation.parentItem: root
 
@@ -125,7 +135,7 @@ MainViewLoader {
 
                 pictureWidth: artistGrid.maxPictureWidth
                 pictureHeight: artistGrid.maxPictureHeight
-                pictureRadius: artistGrid.maxPictureWidth
+                pictureRadius: (width / 2) // "pictureWidth" is image source width, postprocessing is done on item
 
                 image: model.cover || ""
                 fallbackImage: VLCStyle.noArtArtistSmall
@@ -156,7 +166,7 @@ MainViewLoader {
     Component {
         id: tableComponent
 
-        MainTableView {
+        Widgets.TableViewExt {
             id: artistTable
 
             property var _modelSmall: [{
@@ -205,6 +215,12 @@ MainViewLoader {
             dragItem: artistsDragItem
             rowContextMenu: contextMenu
             rowHeight: VLCStyle.tableCoverRow_height
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
+            fadingEdge.enableBeginningFade: root.enableBeginningFade
+            fadingEdge.enableEndFade: root.enableEndFade
 
             header: root.header
             Navigation.parentItem: root

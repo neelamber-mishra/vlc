@@ -184,9 +184,6 @@ AbstractButton {
             }
 
             Widgets.DefaultShadow {
-                anchors.centerIn: coverImage
-
-                sourceItem: coverImage
 
             }
         }
@@ -226,6 +223,7 @@ AbstractButton {
                 Layout.fillHeight: true
 
                 Binding on visible {
+                    delayed: true
                     value: (infoColumn.height > infoColumn.implicitHeight) && (artistLabel.text.length > 0)
                 }
 
@@ -252,7 +250,7 @@ AbstractButton {
                         " -- / -- "
                     else {
                         const length = Player.length
-                        return Player.time.formatHMS(length.isSubSecond() ? length.SubSecondFormattedAsMS : 0) +
+                        return Player.time.formatHMS(length.isSubSecond() ? VLCTick.SubSecondFormattedAsMS : 0) +
                                 " / " +
                                 length.formatHMS()
                     }

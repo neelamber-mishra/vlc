@@ -1,6 +1,6 @@
 # libvpx
 
-VPX_VERSION := 1.15.0
+VPX_VERSION := 1.15.2
 VPX_URL := $(GITHUB)/webmproject/libvpx/archive/v${VPX_VERSION}.tar.gz
 
 ifneq ($(filter arm aarch64 i386 loongarch64 mipsel mips64el ppc64le x86_64 wasm32, $(ARCH)),)
@@ -31,7 +31,6 @@ endif
 	# Disable automatic addition of -fembed-bitcode for iOS
 	# as it is enabled through --extra-cflags if necessary.
 	$(APPLY) $(SRC)/vpx/libvpx-remove-bitcode.patch
-	$(APPLY) $(SRC)/vpx/0001-vp9-rc-fix-sizeof-of-member-in-static-function.patch
 	$(MOVE)
 
 DEPS_vpx =
@@ -139,6 +138,14 @@ VPX_CONF += --enable-vp8-decoder
 VPX_LDFLAGS := -L$(IOS_SDK)/usr/lib -isysroot $(IOS_SDK) $(LDFLAGS)
 ifeq ($(ARCH),aarch64)
 VPX_LDFLAGS += -arch arm64
+endif
+endif
+ifdef HAVE_DARWIN_OS
+ifeq ($(ARCH),$(filter $(ARCH), arm aarch64))
+ifneq ($(call clang_at_least, 13), true)
+# arm_neon.h broken on clang 12
+VPX_CONF += --disable-neon-dotprod
+endif
 endif
 endif
 

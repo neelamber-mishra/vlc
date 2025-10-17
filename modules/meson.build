@@ -59,8 +59,11 @@ else
     have_wayland = false
 endif
 
+# PipeWire
+pipewire_dep = dependency('libpipewire-0.3', version: '>= 0.3.64', required: get_option('pipewire'))
+
 # Pulse audio
-pulse_dep = dependency('libpulse', version: '>= 1.0', required: get_option('pulse'))
+pulse_dep = dependency('libpulse', version: '>= 6.0', required: get_option('pulse'))
 
 # ALSA
 alsa_dep = dependency('alsa', version: '>= 1.0.24', required: get_option('alsa'))
@@ -157,6 +160,20 @@ ksuser_lib = cc.find_library('ksuser',
 
 # Helper libraries for modules
 # These are helper libraries used by some modules
+
+# PipeWire helper library
+if pipewire_dep.found()
+    libvlc_pipewire = library('vlc_pipewire',
+        files('audio_output/vlc_pipewire.c'),
+        include_directories: [include_directories('audio_output'), vlc_include_dirs],
+        dependencies: [libvlccore_dep, pipewire_dep],
+        link_with: [vlc_libcompat],
+    )
+else
+    libvlc_pipewire = disabler()
+endif
+
+# Pulse audio helper library
 if pulse_dep.found()
     libvlc_pulse = library('vlc_pulse',
         files('audio_output/vlcpulse.c'),
@@ -178,9 +195,9 @@ librist_dep = dependency('librist', required: get_option('rist'))
 mtp_dep = dependency('libmtp', version: '>=1.0.0', required: get_option('mtp'))
 
 # FFmpeg
-avformat_dep = dependency('libavformat', version: '>= 58.29.100', required: get_option('avformat'))
-avcodec_dep  = dependency('libavcodec', version: '>= 58.54.100', required: get_option('avcodec'))
-avutil_dep   = dependency('libavutil', version: '>= 56.31.100', required: false)
+avformat_dep = dependency('libavformat', version: '>= 58.76.100', required: get_option('avformat'))
+avcodec_dep  = dependency('libavcodec', version: '>= 58.134.100', required: get_option('avcodec'))
+avutil_dep   = dependency('libavutil', version: '>= 56.70.100', required: false)
 
 # Freetype, used by text_renderer and ASS access
 freetype_dep = dependency('freetype2', 'freetype', required: get_option('freetype'))
@@ -328,11 +345,11 @@ subdir('spu')
 # text renderer modules
 subdir('text_renderer')
 
-# video filter modules
-subdir('video_filter')
-
 # video output modules
 subdir('video_output')
+
+# video filter modules
+subdir('video_filter')
 
 # hardware modules
 subdir('hw')

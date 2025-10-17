@@ -1,5 +1,5 @@
 # ASS
-ASS_VERSION := 0.17.3
+ASS_VERSION := 0.17.4
 ASS_URL := $(GITHUB)/libass/libass/releases/download/$(ASS_VERSION)/libass-$(ASS_VERSION).tar.gz
 
 PKGS += ass
@@ -7,11 +7,12 @@ ifeq ($(call need_pkg,"libass"),)
 PKGS_FOUND += ass
 endif
 
+ifneq ($(filter aarch64 i386 x86_64, $(ARCH)),)
+WITH_ASS_ASM = 1
+endif
+
 ifdef HAVE_ANDROID
 WITH_FONTCONFIG = 0
-ifeq ($(ANDROID_ABI), x86)
-WITH_ASS_ASM = 0
-endif
 else
 ifdef HAVE_DARWIN_OS
 WITH_FONTCONFIG = 0
@@ -36,31 +37,28 @@ $(TARBALLS)/libass-$(ASS_VERSION).tar.gz:
 
 libass: libass-$(ASS_VERSION).tar.gz .sum-ass
 	$(UNPACK)
-	$(APPLY) $(SRC)/ass/0001-aarch64-Set-the-right-intended-alignment-for-constan.patch
-	$(call update_autoconfig,.)
-	$(call pkg_static,"libass.pc.in")
 	$(MOVE)
 
 DEPS_ass = freetype2 $(DEPS_freetype2) fribidi $(DEPS_fribidi) iconv $(DEPS_iconv) harfbuzz $(DEPS_harfbuzz)
 
-ASS_CONF = --disable-test
+ASS_CONF = -Dauto_features=disabled
 ifneq ($(WITH_FONTCONFIG), 0)
 DEPS_ass += fontconfig $(DEPS_fontconfig)
+ASS_CONF += -Dfontconfig=enabled
 else
-ASS_CONF += --disable-fontconfig --disable-require-system-font-provider
+ASS_CONF += -Drequire-system-font-provider=false
 endif
 
 ifeq ($(WITH_DWRITE), 1)
-ASS_CONF += --enable-directwrite
+ASS_CONF += -Ddirectwrite=enabled
 endif
 
-ifeq ($(WITH_ASS_ASM), 0)
-ASS_CONF += --disable-asm
+ifeq ($(WITH_ASS_ASM), 1)
+ASS_CONF += -Dasm=enabled
 endif
 
-.ass: libass
-	$(MAKEBUILDDIR)
-	$(MAKECONFIGURE) $(ASS_CONF)
-	+$(MAKEBUILD)
-	+$(MAKEBUILD) install
+.ass: libass crossfile.meson
+	$(MESONCLEAN)
+	$(MESON) $(ASS_CONF)
+	+$(MESONBUILD)
 	touch $@

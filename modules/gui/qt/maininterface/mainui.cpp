@@ -7,12 +7,13 @@
 #include "medialibrary/mlcustomcover.hpp"
 #include "medialibrary/mlalbummodel.hpp"
 #include "medialibrary/mlartistmodel.hpp"
-#include "medialibrary/mlalbumtrackmodel.hpp"
+#include "medialibrary/mlaudiomodel.hpp"
 #include "medialibrary/mlgenremodel.hpp"
 #include "medialibrary/mlurlmodel.hpp"
+#include "medialibrary/mlmediamodel.hpp"
 #include "medialibrary/mlvideomodel.hpp"
-#include "medialibrary/mlrecentsmodel.hpp"
-#include "medialibrary/mlrecentsvideomodel.hpp"
+#include "medialibrary/mlrecentmediamodel.hpp"
+#include "medialibrary/mlrecentvideomodel.hpp"
 #include "medialibrary/mlfoldersmodel.hpp"
 #include "medialibrary/mlvideogroupsmodel.hpp"
 #include "medialibrary/mlvideofoldersmodel.hpp"
@@ -47,6 +48,7 @@
 #include "util/vlctick.hpp"
 #include "util/list_selection_model.hpp"
 #include "util/ui_notifier.hpp"
+#include "util/textureproviderobserver.hpp"
 
 #include "dialogs/help/aboutmodel.hpp"
 #include "dialogs/dialogs_provider.hpp"
@@ -92,6 +94,26 @@ MainUI::MainUI(qt_intf_t *p_intf, MainCtx *mainCtx, QWindow* interfaceWindow,  Q
     assert(m_interfaceWindow);
 
     registerQMLTypes();
+
+    // FIXME: Since Qt 6.6, Qt follows a different approach for scrolling. This new approach has
+    //        caused a lot of frustration (QTBUG-116388, QTBUG-129948, QTBUG-120038). However,
+    //        the previous scrolling behavior was not perfect either, so we have not been opting
+    //        in to use the previous behavior. That being said, the new approach broke scrolling
+    //        with views that has sections completely, so we don't have any option besides using
+    //        the previous scrolling implementation. The new approach (b1766d9), `Flickable:
+    //        Proportional wheel scrolling if deceleration is large` tells that the previous
+    //        deceleration value was 5000. In this case, we use 10000 instead to not make scrolling
+    //        as loose as it was before (which was apparently the main reason of coming up with the
+    //        new approach). Setting this environment variable to any value lower than 15000
+    //        reportedly (and evidently) brings back the old behavior, and does not continue
+    //        using the new approach with the deceleration set (which is what we want to fix
+    //        scrolling when there are sections).
+    if constexpr (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
+    {
+        const auto envFlickableWheelDeceleration = "QT_QUICK_FLICKABLE_WHEEL_DECELERATION";
+        if (qEnvironmentVariableIsEmpty(envFlickableWheelDeceleration))
+            qputenv(envFlickableWheelDeceleration, QByteArrayLiteral("10000"));
+    }
 }
 
 MainUI::~MainUI()
@@ -178,7 +200,9 @@ void MainUI::registerQMLTypes()
         qmlRegisterUncreatableType<QAbstractItemModel>(uri, versionMajor, versionMinor, "QtAbstractItemModel", "");
         qmlRegisterUncreatableType<QWindow>(uri, versionMajor, versionMinor, "QtWindow", "");
         qmlRegisterUncreatableType<QScreen>(uri, versionMajor, versionMinor, "QtScreen", "");
-        qmlRegisterUncreatableType<VLCTick>(uri, versionMajor, versionMinor, "vlcTick", "");
+        qmlRegisterTypesAndRevisions<VLCDuration>(uri, versionMajor);
+        qmlRegisterTypesAndRevisions<VLCTime>(uri, versionMajor);
+        qmlRegisterUncreatableMetaObject(VLCTickForeign::staticMetaObject, uri, versionMajor, versionMinor, "VLCTick", "Not Instantiable" );
         qmlRegisterType<VideoSurface>(uri, versionMajor, versionMinor, "VideoSurface");
         qmlRegisterUncreatableType<BaseModel>( uri, versionMajor, versionMinor, "BaseModel", "Base Model is uncreatable." );
         qmlRegisterUncreatableType<VLCVarChoiceModel>(uri, versionMajor, versionMinor, "VLCVarChoiceModel", "generic variable with choice model" );
@@ -340,6 +364,7 @@ void MainUI::registerQMLTypes()
         qmlRegisterType<FlickableScrollHandler>( uri, versionMajor, versionMinor, "FlickableScrollHandler" );
         qmlRegisterType<ListSelectionModel>( uri, versionMajor, versionMinor, "ListSelectionModel" );
         qmlRegisterType<DoubleClickIgnoringItem>( uri, versionMajor, versionMinor, "DoubleClickIgnoringItem" );
+        qmlRegisterType<TextureProviderObserver>( uri, versionMajor, versionMinor, "TextureProviderObserver" );
 
         qmlRegisterModule(uri, versionMajor, versionMinor);
         qmlProtectModule(uri, versionMajor);
@@ -373,11 +398,12 @@ void MainUI::registerQMLTypes()
         qmlRegisterUncreatableType<MLBaseModel>( uri, versionMajor, versionMinor, "MLBaseModel", "ML Base Model is uncreatable." );
         qmlRegisterType<MLAlbumModel>( uri, versionMajor, versionMinor, "MLAlbumModel" );
         qmlRegisterType<MLArtistModel>( uri, versionMajor, versionMinor, "MLArtistModel" );
-        qmlRegisterType<MLAlbumTrackModel>( uri, versionMajor, versionMinor, "MLAlbumTrackModel" );
+        qmlRegisterType<MLAudioModel>( uri, versionMajor, versionMinor, "MLAudioModel" );
         qmlRegisterType<MLGenreModel>( uri, versionMajor, versionMinor, "MLGenreModel" );
         qmlRegisterType<MLUrlModel>( uri, versionMajor, versionMinor, "MLUrlModel" );
+        qmlRegisterType<MLMediaModel>( uri, versionMajor, versionMinor, "MLMediaModel" );
         qmlRegisterType<MLVideoModel>( uri, versionMajor, versionMinor, "MLVideoModel" );
-        qmlRegisterType<MLRecentsVideoModel>( uri, versionMajor, versionMinor, "MLRecentsVideoModel" );
+        qmlRegisterType<MLRecentVideoModel>( uri, versionMajor, versionMinor, "MLRecentVideoModel" );
         qmlRegisterType<MLVideoGroupsModel>( uri, versionMajor, versionMinor, "MLVideoGroupsModel" );
         qmlRegisterType<MLVideoFoldersModel>( uri, versionMajor, versionMinor, "MLVideoFoldersModel" );
         qmlRegisterType<MLPlaylistListModel>( uri, versionMajor, versionMinor, "MLPlaylistListModel" );
@@ -389,7 +415,7 @@ void MainUI::registerQMLTypes()
         qmlRegisterType<NetworkSourcesModel>( uri, versionMajor, versionMinor, "NetworkSourcesModel");
         qmlRegisterType<AddonsModel>( uri, versionMajor, versionMinor, "ServicesDiscoveryModel");
         qmlRegisterType<MLFoldersModel>( uri, versionMajor, versionMinor, "MLFolderModel");
-        qmlRegisterType<MLRecentsModel>( uri, versionMajor, versionMinor, "MLRecentModel" );
+        qmlRegisterType<MLRecentMediaModel>( uri, versionMajor, versionMinor, "MLRecentMediaModel" );
 
         qmlRegisterType<PlaylistListContextMenu>( uri, versionMajor, versionMinor, "PlaylistListContextMenu" );
         qmlRegisterType<PlaylistMediaContextMenu>( uri, versionMajor, versionMinor, "PlaylistMediaContextMenu" );
@@ -397,14 +423,4 @@ void MainUI::registerQMLTypes()
         qmlRegisterModule(uri, versionMajor, versionMinor);
         qmlProtectModule(uri, versionMajor);
     }
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
-    // Dummy QtQuick.Effects module
-    qmlRegisterModule("QtQuick.Effects", 0, 0);
-    // Do not protect, types can still be registered.
-#else
-    // Dummy Qt5Compat.GraphicalEffects module
-    qmlRegisterModule("Qt5Compat.GraphicalEffects", 0, 0);
-    // Do not protect, types can still be registered.
-#endif
 }

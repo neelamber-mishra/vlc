@@ -1,14 +1,14 @@
-GNU=http://ftp.gnu.org/gnu
-APACHE=http://mir2.ovh.net/ftp.apache.org/dist
-SF= http://downloads.sourceforge.net/project
-VIDEOLAN=http://downloads.videolan.org/pub/contrib
+GNU=https://ftpmirror.gnu.org/gnu
+APACHE=https://downloads.apache.org/
+SF=https://downloads.sourceforge.net/project
+VIDEOLAN=https://downloads.videolan.org/pub/contrib
 
 NASM_VERSION=2.14
-NASM_URL=http://www.nasm.us/pub/nasm/releasebuilds/$(NASM_VERSION)/nasm-$(NASM_VERSION).tar.gz
+NASM_URL=https://www.nasm.us/pub/nasm/releasebuilds/$(NASM_VERSION)/nasm-$(NASM_VERSION).tar.gz
 
-CMAKE_VERSION_MAJ=3.29
-CMAKE_VERSION=$(CMAKE_VERSION_MAJ).5
-CMAKE_URL=http://www.cmake.org/files/v$(CMAKE_VERSION_MAJ)/cmake-$(CMAKE_VERSION).tar.gz
+CMAKE_VERSION_MAJ=3.31
+CMAKE_VERSION=$(CMAKE_VERSION_MAJ).8
+CMAKE_URL=https://www.cmake.org/files/v$(CMAKE_VERSION_MAJ)/cmake-$(CMAKE_VERSION).tar.gz
 
 LIBTOOL_VERSION=2.5.4
 LIBTOOL_URL=$(GNU)/libtool/libtool-$(LIBTOOL_VERSION).tar.gz
@@ -16,7 +16,7 @@ LIBTOOL_URL=$(GNU)/libtool/libtool-$(LIBTOOL_VERSION).tar.gz
 AUTOCONF_VERSION=2.72
 AUTOCONF_URL=$(GNU)/autoconf/autoconf-$(AUTOCONF_VERSION).tar.gz
 
-AUTOMAKE_VERSION=1.17
+AUTOMAKE_VERSION=1.18
 AUTOMAKE_URL=$(GNU)/automake/automake-$(AUTOMAKE_VERSION).tar.gz
 
 M4_VERSION=1.4.19
@@ -29,7 +29,7 @@ TAR_VERSION=1.34
 TAR_URL=$(GNU)/tar/tar-$(TAR_VERSION).tar.bz2
 
 XZ_VERSION=5.4.1
-XZ_URL=http://tukaani.org/xz/xz-$(XZ_VERSION).tar.bz2
+XZ_URL=https://tukaani.org/xz/xz-$(XZ_VERSION).tar.bz2
 
 SED_VERSION=4.2.2
 SED_URL=$(GNU)/sed/sed-$(SED_VERSION).tar.bz2
@@ -43,13 +43,13 @@ BISON_URL=$(GNU)/bison/bison-$(BISON_VERSION).tar.xz
 FLEX_VERSION=2.6.4
 FLEX_URL=https://github.com/westes/flex/releases/download/v$(FLEX_VERSION)/flex-$(FLEX_VERSION).tar.gz
 
-GETTEXT_VERSION=0.22
+GETTEXT_VERSION=0.26
 GETTEXT_URL=$(GNU)/gettext/gettext-$(GETTEXT_VERSION).tar.gz
 
 HELP2MAN_VERSION=1.47.6
 HELP2MAN_URL=$(GNU)/help2man/help2man-$(HELP2MAN_VERSION).tar.xz
 
-MESON_VERSION=1.7.1
+MESON_VERSION=1.9.0
 MESON_URL=https://github.com/mesonbuild/meson/releases/download/$(MESON_VERSION)/meson-$(MESON_VERSION).tar.gz
 
 NINJA_VERSION=1.11.1
@@ -59,8 +59,5 @@ NINJA_URL=https://github.com/Kitware/ninja/archive/refs/tags/v$(NINJA_BUILD_NAME
 GPERF_VERSION=3.1
 GPERF_URL=$(GNU)/gperf/gperf-$(GPERF_VERSION).tar.gz
 
-CONFIGGUESS_VERSION=948ae97ca5703224bd3eada06b7a69f40dd15a02
-CONFIGGUESS_URL=https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=$(CONFIGGUESS_VERSION)
-
-CONFIGSUB_VERSION=948ae97ca5703224bd3eada06b7a69f40dd15a02
-CONFIGSUB_URL=https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=$(CONFIGGUESS_VERSION)
+CONFIGGUESS_VERSION=a2287c3041a3f2a204eb942e09c015eab00dc7dd
+CONFIGSUB_VERSION=a2287c3041a3f2a204eb942e09c015eab00dc7dd

@@ -39,7 +39,7 @@
 #include <vlc_image.h>
 #include <vlc_block.h>
 
-#include "ancillary.h"
+#include <vlc_ancillary.h>
 
 static void PictureDestroyContext( picture_t *p_picture )
 {
@@ -414,7 +414,7 @@ void picture_CopyProperties( picture_t *p_dst, const picture_t *p_src )
 
     const picture_priv_t *src_priv = container_of(p_src, picture_priv_t, picture);
     picture_priv_t *dst_priv = container_of(p_dst, picture_priv_t, picture);
-    vlc_ancillary_array_Dup(&dst_priv->ancillaries, &src_priv->ancillaries);
+    vlc_ancillary_array_Merge(&dst_priv->ancillaries, &src_priv->ancillaries);
 }
 
 void picture_CopyPixels( picture_t *p_dst, const picture_t *p_src )
@@ -480,8 +480,22 @@ picture_t *picture_Clone(picture_t *picture)
 
     const picture_priv_t *priv = container_of(picture, picture_priv_t, picture);
     picture_priv_t *clone_priv = container_of(clone, picture_priv_t, picture);
-    vlc_ancillary_array_Dup(&clone_priv->ancillaries, &priv->ancillaries);
+    vlc_ancillary_array_Merge(&clone_priv->ancillaries, &priv->ancillaries);
     return clone;
+}
+
+int
+picture_MergeAncillaries(picture_t *pic, const vlc_ancillary_array *src_array)
+{
+    picture_priv_t *priv = container_of(pic, picture_priv_t, picture);
+    return vlc_ancillary_array_Merge(&priv->ancillaries, src_array);
+}
+
+int
+picture_MergeAndClearAncillaries(picture_t *pic, vlc_ancillary_array *src_array)
+{
+    picture_priv_t *priv = container_of(pic, picture_priv_t, picture);
+    return vlc_ancillary_array_MergeAndClear(&priv->ancillaries, src_array);
 }
 
 int

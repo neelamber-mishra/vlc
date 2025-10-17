@@ -34,8 +34,8 @@ Item {
 
     property bool playCoverShowPlay: true
 
-    readonly property real effectiveRadius: image.visible ? image.effectiveRadius
-                                                          : (fallbackImage.visible ? fallbackImage.effectiveRadius
+    readonly property real effectiveRadius: fallbackImage.visible ? fallbackImage.effectiveRadius
+                                                                  : (image.visible ? image.effectiveRadius
                                                                                    : 0.0)
 
     readonly property real eDPR: MainCtx.effectiveDevicePixelRatio(Window.window)
@@ -43,10 +43,14 @@ Item {
     // Aliases
 
     property alias radius: image.radius
+    property alias radiusTopRight: image.radiusTopRight
+    property alias radiusTopLeft: image.radiusTopLeft
+    property alias radiusBottomRight: image.radiusBottomRight
+    property alias radiusBottomLeft: image.radiusBottomLeft
 
     property alias color: image.backgroundColor
 
-    property alias source: image.source
+    property url source
 
     property alias cacheImage: image.cache
 
@@ -81,6 +85,20 @@ Item {
     Accessible.role: Accessible.Graphic
     Accessible.name: qsTr("Media cover")
 
+    // If this type is used within a reusable delegate, connect `ItemView::reused()` to this function.
+    function reinitialize() {
+        _loadTimeout = false
+        fallbackImage.source = Qt.binding(() => { return fallbackImage.defaultSource })
+        image.source = Qt.binding(() => { return image.defaultSource })
+    }
+
+    // If this type is used within a reusable delegate, connect `ItemView::pooled()` to this function.
+    // NOTE: This does not override `QQuickItem::releaseResources()`.
+    function releaseResources() {
+        fallbackImage.source = ""
+        image.source = ""
+    }
+
     // Children
 
     //delay placeholder showing up
@@ -96,8 +114,11 @@ Item {
 
         anchors.fill: parent
 
+        source: defaultSource
         sourceSize: Qt.size(root.pictureWidth * root.eDPR,
                             root.pictureHeight * root.eDPR)
+
+        readonly property url defaultSource: root.source
 
         onStatusChanged: {
             if (status === Image.Loading) {
@@ -115,6 +136,10 @@ Item {
         anchors.fill: parent
 
         radius: root.radius
+        radiusTopRight: root.radiusTopRight
+        radiusTopLeft: root.radiusTopLeft
+        radiusBottomRight: root.radiusBottomRight
+        radiusBottomLeft: root.radiusBottomLeft
 
         backgroundColor: root.color
 
@@ -126,7 +151,9 @@ Item {
 
         // we only keep this image till there is no main image
         // try to release the resources otherwise
-        source: visible ? root.fallbackImageSource : ""
+        source: defaultSource
+
+        readonly property url defaultSource: visible ? root.fallbackImageSource : ""
 
         sourceSize: Qt.size(root.pictureWidth * root.eDPR,
                             root.pictureHeight * root.eDPR)

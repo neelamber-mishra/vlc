@@ -23,7 +23,7 @@
 #include "ICanonicalUrl.hpp"
 #include "Inheritables.hpp"
 #include "Segment.h"
-#include "../tools/Properties.hpp"
+#include "../tools/Macros.hpp"
 #include "../encryption/CommonEncryption.hpp"
 #include <vlc_common.h>
 #include <vector>
@@ -48,6 +48,7 @@ namespace adaptive
                                    public AttrsNode
         {
             friend class AbstractMultipleSegmentBaseType;
+            PREREQ_VIRTUAL(SegmentInformation);
 
             public:
                 SegmentInformation( SegmentInformation * = 0 );
@@ -88,7 +89,7 @@ namespace adaptive
                 void updateSegmentList(SegmentList *, bool = false);
                 void setSegmentTemplate(SegmentTemplate *);
                 Url getUrlSegment() const override;
-                Property<Url *> baseUrl;
+                Url * baseUrl;
                 const AbstractSegmentBaseType * inheritSegmentProfile() const;
 
             private:

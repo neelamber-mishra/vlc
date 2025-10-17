@@ -51,7 +51,7 @@ namespace
 // building as C++17 (noexcept becomes part of the function signature stating there)
 
 // Wraps a pointer with a custom releaser
-// ex: auto ptr = vlc_wrap_cptr( input_item, &input_item_Release );
+// ex: auto ptr = vlc::wrap_cptr( input_item, &input_item_Release );
 
 ///
 /// Wraps a C pointer into a std::unique_ptr
@@ -60,7 +60,7 @@ namespace
 /// T is the pointee type, and R is an arbitrary releaser type.
 ///
 /// ptr will be automatically released by calling r( ptr ) when falling out of
-/// scope (whether by returning of by throwing an exception
+/// scope (whether by returning or by throwing an exception).
 ///
 /// @param ptr a C pointer
 /// @param r An instance of a Callable type, that will be invoked with ptr
@@ -82,7 +82,7 @@ inline auto wrap_cptr( T* ptr, Releaser&& r ) noexcept
 /// releaser type.
 ///
 /// ptr will be automatically released by calling r( ptr ) when falling out of
-/// scope (whether by returning of by throwing an exception
+/// scope (whether by returning or by throwing an exception).
 ///
 /// This function is equivalent to wrap_cptr, except that the returned
 /// unique_ptr provides an operator[] for array access instead of operator* and
@@ -136,16 +136,13 @@ inline std::unique_ptr<T[], void (*)(void*)> wrap_carray( T* ptr ) noexcept
 /// To create a new shared resource wrapper type for my_type_t, simply declare:
 ///
 ///     using MyTypePtr =
-///         vlc_shared_data_ptr_type(my_type_t, my_type_Hold, my_type_Release);
+///         ::vlc::vlc_shared_data_ptr<my_type_t, &my_type_Hold, &my_type_Release>;
 ///
 /// Then use it to wrap a raw C pointer:
 ///
 ///     my_type_t *raw_ptr = /* ... */;
 ///     MyTypePtr ptr(raw_ptr);
-
-// In C++17, the template declaration could be replaced by:
-//     template<typename T, auto HOLD, auto RELEASE>
-template <typename T, typename H, typename R, H HOLD, R RELEASE>
+template <typename T, auto HOLD, auto RELEASE>
 class vlc_shared_data_ptr {
     T *ptr = nullptr;
 
@@ -270,11 +267,6 @@ public:
         ptr = newptr;
     }
 };
-
-// useful due to the unnecessarily complex template declaration before C++17
-#define vlc_shared_data_ptr_type(type, hold, release) \
-    ::vlc::vlc_shared_data_ptr<type, decltype(&hold), decltype(&release), \
-                               &hold, &release>
 
 #if defined(VLC_THREADS_H_) || defined(DOC)
 

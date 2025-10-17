@@ -295,8 +295,8 @@ static int FormatUpdate( decoder_t *dec, vlc_video_context *vctx )
             break;
 #endif // _WIN32
         default:
-            msg_Err(dec, "unsupported decoder output %4.4s", (char*)&dec->fmt_out.video.i_chroma);
-            res = VLC_EGENERIC;
+            msg_Warn(dec, "unsupported decoder output %4.4s, not handling alpha",
+                     (char*)&dec->fmt_out.video.i_chroma);
             break;
     }
     if (res == VLC_SUCCESS)
@@ -570,7 +570,7 @@ int OpenDecoder(vlc_object_t *o)
     decoder_t *dec = container_of(o, decoder_t, obj);
     if (dec->fmt_in->i_codec != VLC_CODEC_VP8 && dec->fmt_in->i_codec != VLC_CODEC_VP9)
         return VLC_ENOTSUP;
-    if (dec->fmt_in->i_level == 0 || dec->fmt_in->i_level == -1)
+    if (!es_format_HasVpxAlpha(dec->fmt_in))
         return VLC_ENOTSUP;
 
     vpx_alpha *p_sys = vlc_obj_calloc(o, 1, sizeof(*p_sys));
@@ -593,7 +593,7 @@ int OpenDecoder(vlc_object_t *o)
         fmt.i_codec = VLC_CODEC_VP8;
     else
         fmt.i_codec = VLC_CODEC_VP9;
-    fmt.i_level = 0;
+    fmt.i_level &= ~0x1000;
     decoder_Init( &p_sys->opaque->dec, &p_sys->opaque->fmt_in, &fmt );
     vlc_picture_chain_Init(&p_sys->opaque->decoded);
     es_format_Init(&p_sys->opaque->fmt_out, VIDEO_ES, 0);
@@ -625,8 +625,7 @@ int OpenDecoder(vlc_object_t *o)
     };
 
     p_sys->opaque->dec.cbs = &dec_cbs;
-    p_sys->opaque->dec.p_module =
-        module_need_var( &p_sys->opaque->dec, "video decoder", "codec" );
+    decoder_LoadModule(&p_sys->opaque->dec, false, true);
     if (p_sys->opaque->dec.p_module == NULL)
     {
         decoder_Destroy(&p_sys->alpha->dec);
@@ -634,8 +633,7 @@ int OpenDecoder(vlc_object_t *o)
         return VLC_EGENERIC;
     }
     p_sys->alpha->dec.cbs = &dec_cbs;
-    p_sys->alpha->dec.p_module =
-        module_need_var( &p_sys->alpha->dec, "video decoder", "codec" );
+    decoder_LoadModule(&p_sys->alpha->dec, false, true);
     if (p_sys->alpha->dec.p_module == NULL)
     {
         decoder_Destroy(&p_sys->alpha->dec);

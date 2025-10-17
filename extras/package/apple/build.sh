@@ -241,7 +241,7 @@ set_host_triplet()
     # Therefore we construct a triplet here without a version number, which
     # will not match the autoconf "guessed" host machine triplet.
     VLC_HOST_TRIPLET="${triplet_arch}-apple-darwin"
-    VLC_HOST_TRIPLET="${VLC_HOST_TRIPLET/arm64/aarch64}"
+    VLC_HOST_TRIPLET="${VLC_HOST_TRIPLET/arm64-/aarch64-}"
 }
 
 # Set the VLC_BUILD_TRIPLET based on the architecture
@@ -422,6 +422,10 @@ write_config_mak()
     printf '%s := %s\n' "STRIP" "${VLC_HOST_STRIP}" >&3
     printf '%s := %s\n' "RANLIB" "${VLC_HOST_RANLIB}" >&3
     printf '%s := %s\n' "NM" "${VLC_HOST_NM}" >&3
+
+    printf '%s := %s\n' "VLC_DEPLOYMENT_TARGET" "${VLC_DEPLOYMENT_TARGET}" >&3
+    printf '%s := %s\n' "VLC_DEPLOYMENT_TARGET_CFLAG" "${VLC_DEPLOYMENT_TARGET_CFLAG}" >&3
+    printf '%s := %s\n' "VLC_DEPLOYMENT_TARGET_LDFLAG" "${VLC_DEPLOYMENT_TARGET_LDFLAG}" >&3
 
     # Add the ac_cv_ var exports in the config.mak for the contribs
     echo "Appending ac_cv_ vars to config.mak"

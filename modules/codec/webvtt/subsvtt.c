@@ -49,6 +49,11 @@
 
 //#define SUBSVTT_DEBUG
 
+// maximum recursions in GetTimedTags()
+#define MAX_TIMED_TAGS_RECURSION           50
+// maximum recursions in ConvertNodesToSegments()
+#define MAX_TIMED_NODE_SEGMENTS_RECURSION  50
+
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
@@ -437,24 +442,7 @@ static void webvtt_domnode_Debug( webvtt_dom_node_t *p_node, int i_depth )
 #define webvtt_domnode_Debug(a,b) webvtt_domnode_Debug((webvtt_dom_node_t *)a,b)
 #endif
 
-static void webvtt_domnode_ChainDelete( webvtt_dom_node_t *p_node );
 static void webvtt_dom_cue_Delete( webvtt_dom_cue_t *p_cue );
-static void webvtt_region_Delete( webvtt_region_t *p_region );
-
-static void webvtt_dom_text_Delete( webvtt_dom_text_t *p_node )
-{
-    free( p_node->psz_text );
-    free( p_node );
-}
-
-static void webvtt_dom_tag_Delete( webvtt_dom_tag_t *p_node )
-{
-    text_style_Delete( p_node->p_cssstyle );
-    free( p_node->psz_attrs );
-    free( p_node->psz_tag );
-    webvtt_domnode_ChainDelete( p_node->p_child );
-    free( p_node );
-}
 
 static void webvtt_domnode_AppendLast( webvtt_dom_node_t **pp_append,
                                        webvtt_dom_node_t *p_node )
@@ -467,20 +455,50 @@ static void webvtt_domnode_AppendLast( webvtt_dom_node_t **pp_append,
 #define webvtt_domnode_AppendLast( a, b ) \
     webvtt_domnode_AppendLast( (webvtt_dom_node_t **) a, (webvtt_dom_node_t *) b )
 
+
+static webvtt_dom_node_t *webvtt_domnode_DeleteNode( webvtt_dom_node_t *p_node )
+{
+    webvtt_dom_node_t *p_child = NULL;
+    if( p_node->type == NODE_TAG )
+    {
+        webvtt_dom_tag_t *p_tag_node = (webvtt_dom_tag_t *) p_node;
+        text_style_Delete( p_tag_node->p_cssstyle );
+        free( p_tag_node->psz_attrs );
+        free( p_tag_node->psz_tag );
+        p_child = p_tag_node->p_child;
+    }
+    else if( p_node->type == NODE_TEXT )
+    {
+        webvtt_dom_text_t *p_text_node = (webvtt_dom_text_t *)p_node;
+        free( p_text_node->psz_text );
+    }
+    else if( p_node->type == NODE_CUE )
+    {
+        webvtt_dom_cue_t *p_cue_node = (webvtt_dom_cue_t *)p_node;
+        text_style_Delete( p_cue_node->p_cssstyle );
+        webvtt_cue_settings_Clean( &p_cue_node->settings );
+        free( p_cue_node->psz_id );
+        p_child = p_cue_node->p_child;
+    }
+    else if( p_node->type == NODE_REGION )
+    {
+        webvtt_region_t *p_region_node = (webvtt_region_t *)p_node;
+        text_style_Delete( p_region_node->p_cssstyle );
+        free( p_region_node->psz_id );
+        p_child = p_region_node->p_child;
+    }
+    free( p_node );
+    return p_child;
+}
+
 static void webvtt_domnode_ChainDelete( webvtt_dom_node_t *p_node )
 {
     while( p_node )
     {
         webvtt_dom_node_t *p_next = p_node->p_next;
-
-        if( p_node->type == NODE_TAG )
-            webvtt_dom_tag_Delete( (webvtt_dom_tag_t *) p_node );
-        else if( p_node->type == NODE_TEXT )
-            webvtt_dom_text_Delete( (webvtt_dom_text_t *) p_node );
-        else if( p_node->type == NODE_CUE )
-            webvtt_dom_cue_Delete( (webvtt_dom_cue_t *) p_node );
-        else if( p_node->type == NODE_REGION )
-            webvtt_region_Delete( (webvtt_region_t *) p_node );
+        webvtt_dom_node_t *p_child = webvtt_domnode_DeleteNode( p_node );
+        while ( p_child )
+            p_child = webvtt_domnode_DeleteNode( p_child );
 
         p_node = p_next;
     }
@@ -596,10 +614,10 @@ static vlc_tick_t webvtt_domnode_GetPlaybackTime( const webvtt_dom_node_t *p_nod
 static bool webvtt_domnode_Match_Class( const webvtt_dom_node_t *p_node, const char *psz )
 {
     const size_t i_len = strlen( psz );
-    if( p_node->type == NODE_TAG )
+    if( i_len && p_node->type == NODE_TAG )
     {
         const webvtt_dom_tag_t *p_tagnode = (webvtt_dom_tag_t *) p_node;
-        for( const char *p = p_tagnode->psz_attrs; p && psz; p++ )
+        for( const char *p = p_tagnode->psz_attrs; p && *p; p++ )
         {
             p = strstr( p, psz );
             if( !p )
@@ -707,8 +725,9 @@ static bool webvtt_domnode_Match_Attribute( const webvtt_dom_node_t *p_node,
     {
         const webvtt_dom_tag_t *p_tagnode = (webvtt_dom_tag_t *) p_node;
 
-        if( ( !strcmp( p_tagnode->psz_tag, "v" ) && !strcmp( psz, "voice" ) ) || /* v = only voice */
-            ( !strcmp( p_tagnode->psz_tag, "lang" ) && !strcmp( psz, "lang" ) ) )
+        if( p_tagnode->psz_attrs != NULL &&
+          ( ( !strcmp( p_tagnode->psz_tag, "v" ) && !strcmp( psz, "voice" ) ) || /* v = only voice */
+            ( !strcmp( p_tagnode->psz_tag, "lang" ) && !strcmp( psz, "lang" ) ) ) )
         {
             const char *psz_start = NULL;
             /* skip classes decl */
@@ -1091,12 +1110,6 @@ static unsigned webvtt_region_CountLines( const webvtt_region_t *p_region )
     return i_lines;
 }
 
-static void webvtt_region_ClearCues( webvtt_region_t *p_region )
-{
-    webvtt_domnode_ChainDelete( p_region->p_child );
-    p_region->p_child = NULL;
-}
-
 static void ClearCuesByTime( webvtt_dom_node_t **pp_next, vlc_tick_t i_nztime )
 {
     while( *pp_next )
@@ -1126,13 +1139,13 @@ static void ClearCuesByTime( webvtt_dom_node_t **pp_next, vlc_tick_t i_nztime )
 }
 
 /* Remove top most line/cue for bottom insert */
-static void webvtt_region_Reduce( webvtt_region_t *p_region )
+static bool webvtt_region_Reduce( webvtt_region_t *p_region )
 {
     if( p_region->p_child )
     {
         assert( p_region->p_child->type == NODE_CUE );
         if( p_region->p_child->type != NODE_CUE )
-            return;
+            return false;
         webvtt_dom_cue_t *p_cue = (webvtt_dom_cue_t *)p_region->p_child;
         if( p_cue->i_lines == 1 ||
             webvtt_dom_cue_Reduced( p_cue ) < 1 )
@@ -1140,8 +1153,10 @@ static void webvtt_region_Reduce( webvtt_region_t *p_region )
             p_region->p_child = p_cue->p_next;
             p_cue->p_next = NULL;
             webvtt_dom_cue_Delete( p_cue );
+            return true;
         }
     }
+    return false;
 }
 
 static void webvtt_region_AddCue( webvtt_region_t *p_region,
@@ -1160,8 +1175,8 @@ static void webvtt_region_AddCue( webvtt_region_t *p_region,
             ( i_lines > WEBVTT_REGION_LINES_COUNT ||
              (p_region->b_scroll_up && i_lines > p_region->i_lines_max_scroll)) )
         {
-            webvtt_region_Reduce( p_region ); /* scrolls up */
-            assert( webvtt_region_CountLines( p_region ) < i_lines );
+            if (!webvtt_region_Reduce( p_region )) /* scrolls up */
+                break;
         }
         else break;
     }
@@ -1170,7 +1185,8 @@ static void webvtt_region_AddCue( webvtt_region_t *p_region,
 static void webvtt_region_Delete( webvtt_region_t *p_region )
 {
     text_style_Delete( p_region->p_cssstyle );
-    webvtt_region_ClearCues( p_region );
+    webvtt_domnode_ChainDelete( p_region->p_child );
+    p_region->p_child = NULL;
     free( p_region->psz_id );
     free( p_region );
 }
@@ -1540,12 +1556,15 @@ static text_segment_t *ConvertRubyNodeToSegment( const webvtt_dom_node_t *p_node
         {
             const webvtt_dom_tag_t *p_tag = (const webvtt_dom_tag_t *)p_node;
             if( !strcmp(p_tag->psz_tag, "rt") && p_tag->p_child &&
-                p_tag->p_child->type == NODE_TEXT )
+                p_tag->p_child->type == NODE_TEXT && psz_base )
             {
                 const webvtt_dom_text_t *p_rttext = (const webvtt_dom_text_t *)p_tag->p_child;
-                *pp_rt_append = text_segment_ruby_New( psz_base, p_rttext->psz_text );
-                if( *pp_rt_append )
-                    pp_rt_append = &(*pp_rt_append)->p_next;
+                if ( p_rttext->psz_text )
+                {
+                    *pp_rt_append = text_segment_ruby_New( psz_base, p_rttext->psz_text );
+                    if( *pp_rt_append )
+                        pp_rt_append = &(*pp_rt_append)->p_next;
+                }
             }
             psz_base = NULL;
         }
@@ -1557,8 +1576,12 @@ static text_segment_t *ConvertRubyNodeToSegment( const webvtt_dom_node_t *p_node
 static text_segment_t *ConvertNodesToSegments( decoder_t *p_dec,
                                                struct render_variables_s *p_vars,
                                                const webvtt_dom_cue_t *p_cue,
-                                               const webvtt_dom_node_t *p_node )
+                                               const webvtt_dom_node_t *p_node,
+                                               size_t depth )
 {
+    if (depth > MAX_TIMED_NODE_SEGMENTS_RECURSION)
+        return NULL;
+
     text_segment_t *p_head = NULL;
     text_segment_t **pp_append = &p_head;
     for( ; p_node ; p_node = p_node->p_next )
@@ -1583,7 +1606,7 @@ static text_segment_t *ConvertNodesToSegments( decoder_t *p_dec,
             const webvtt_dom_tag_t *p_tag = (const webvtt_dom_tag_t *)p_node;
             if( strcmp(p_tag->psz_tag, "ruby") )
                 *pp_append = ConvertNodesToSegments( p_dec, p_vars, p_cue,
-                                                     p_tag->p_child );
+                                                     p_tag->p_child, depth+1 );
             else
                 *pp_append = ConvertRubyNodeToSegment( p_tag->p_child );
         }
@@ -1595,7 +1618,7 @@ static text_segment_t *ConvertCueToSegments( decoder_t *p_dec,
                                              struct render_variables_s *p_vars,
                                              const webvtt_dom_cue_t *p_cue )
 {
-    return ConvertNodesToSegments( p_dec, p_vars, p_cue, p_cue->p_child );
+    return ConvertNodesToSegments( p_dec, p_vars, p_cue, p_cue->p_child, 0 );
 }
 
 static void ChainCueSegments( const webvtt_dom_cue_t *p_cue, text_segment_t *p_new,
@@ -1658,8 +1681,12 @@ static text_segment_t * ConvertCuesToSegments( decoder_t *p_dec, vlc_tick_t i_nz
 }
 
 static void GetTimedTags( const webvtt_dom_node_t *p_node,
-                           vlc_tick_t i_nzstart, vlc_tick_t i_nzstop, vlc_array_t *p_times )
+                          vlc_tick_t i_nzstart, vlc_tick_t i_nzstop, vlc_array_t *p_times,
+                          size_t depth )
 {
+    if (depth > MAX_TIMED_TAGS_RECURSION)
+        return;
+
     for( ; p_node; p_node = p_node->p_next )
     {
         switch( p_node->type )
@@ -1669,12 +1696,12 @@ static void GetTimedTags( const webvtt_dom_node_t *p_node,
                 const webvtt_dom_tag_t *p_tag = (const webvtt_dom_tag_t *) p_node;
                 if( p_tag->i_nzstart > -1 && p_tag->i_nzstart >= i_nzstart && p_tag->i_nzstart < i_nzstop )
                     (void) vlc_array_append( p_times, (void *) p_tag );
-                GetTimedTags( p_tag->p_child, i_nzstart, i_nzstop, p_times );
+                GetTimedTags( p_tag->p_child, i_nzstart, i_nzstop, p_times, depth+1 );
             } break;
             case NODE_REGION:
             case NODE_CUE:
                 GetTimedTags( webvtt_domnode_getFirstChild( p_node ),
-                              i_nzstart, i_nzstop, p_times );
+                              i_nzstart, i_nzstop, p_times, depth+1 );
                 break;
             default:
                 break;
@@ -1900,7 +1927,7 @@ static void Render( decoder_t *p_dec, vlc_tick_t i_nzstart, vlc_tick_t i_nzstop 
     vlc_array_t timedtags;
     vlc_array_init( &timedtags );
 
-    GetTimedTags( p_sys->p_root->p_child, i_nzstart, i_nzstop, &timedtags );
+    GetTimedTags( p_sys->p_root->p_child, i_nzstart, i_nzstop, &timedtags, 0 );
     if( timedtags.i_count )
         qsort( timedtags.pp_elems, timedtags.i_count, sizeof(*timedtags.pp_elems), timedtagsArrayCmp );
 

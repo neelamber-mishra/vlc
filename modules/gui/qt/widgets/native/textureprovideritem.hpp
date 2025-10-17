@@ -49,6 +49,8 @@ public:
     void setAnisotropyLevel(QSGTexture::AnisotropyLevel level);
     void setHorizontalWrapMode(QSGTexture::WrapMode hwrap);
     void setVerticalWrapMode(QSGTexture::WrapMode vwrap);
+
+    void requestDetachFromAtlas();
 };
 
 class TextureProviderItem : public QQuickItem
@@ -56,16 +58,59 @@ class TextureProviderItem : public QQuickItem
     Q_OBJECT
 
     Q_PROPERTY(const QQuickItem* source MEMBER m_source NOTIFY sourceChanged FINAL)
-    Q_PROPERTY(QRect textureSubRect MEMBER m_rect NOTIFY rectChanged FINAL)
+    // NOTE: Although this is named as `textureSubRect`, it is allowed to provide a larger size than
+    //       the texture size. In that case, the texture's wrap mode is going to be relevant, provided
+    //       that the graphics backend supports it. Do note that if the source texture is already a
+    //       sub-texture (such as a texture in the atlas), wrapping would only be applicable outside
+    //       the boundaries of the whole texture and not the source sub-texture, and not considering
+    //       this may expose irrelevant parts of the atlas (this means that wrap mode is effectively
+    //       useless for sub- or atlas textures). In such a case, `detachAtlasTextures` can be used.
+    Q_PROPERTY(QRect textureSubRect MEMBER m_rect NOTIFY rectChanged RESET resetTextureSubRect FINAL)
+    Q_PROPERTY(bool detachAtlasTextures MEMBER m_detachAtlasTextures NOTIFY detachAtlasTexturesChanged FINAL)
+
+    Q_PROPERTY(QSGTexture::AnisotropyLevel anisotropyLevel MEMBER m_anisotropyLevel NOTIFY anisotropyLevelChanged FINAL)
+    Q_PROPERTY(QSGTexture::WrapMode horizontalWrapMode MEMBER m_horizontalWrapMode NOTIFY horizontalWrapModeChanged FINAL)
+    Q_PROPERTY(QSGTexture::WrapMode verticalWrapMode MEMBER m_verticalWrapMode NOTIFY verticalWrapModeChanged FINAL)
+    // Maybe we should use `Item::smooth` instead of these properties, or maybe not, as we should allow disabling filtering completely.
+    Q_PROPERTY(QSGTexture::Filtering filtering MEMBER m_filtering NOTIFY filteringChanged FINAL)
+    // WARNING: mipmap filtering is not respected if target texture has no mip maps:
+    Q_PROPERTY(QSGTexture::Filtering mipmapFiltering MEMBER m_mipmapFiltering NOTIFY mipmapFilteringChanged FINAL)
 
     QML_ELEMENT
 public:
     TextureProviderItem() = default;
     virtual ~TextureProviderItem();
 
+    // These enumerations must be in sync with `QSGTexture`:
+    // It appears that MOC is not clever enough to consider foreign enumerations with `Q_ENUM` (I tried)...
+    enum _WrapMode {
+        Repeat,
+        ClampToEdge,
+        MirroredRepeat
+    };
+    Q_ENUM(_WrapMode);
+
+    enum _Filtering {
+        None,
+        Nearest,
+        Linear
+    };
+    Q_ENUM(_Filtering);
+
+    enum _AnisotropyLevel {
+        AnisotropyNone,
+        Anisotropy2x,
+        Anisotropy4x,
+        Anisotropy8x,
+        Anisotropy16x
+    };
+    Q_ENUM(_AnisotropyLevel);
+
     bool isTextureProvider() const override;
 
     QSGTextureProvider *textureProvider() const override;
+
+    void resetTextureSubRect();
 
 public slots:
     void invalidateSceneGraph();
@@ -73,18 +118,32 @@ public slots:
 signals:
     void sourceChanged(const QQuickItem *source);
     void rectChanged(const QRect& rect);
-    void dprChanged();
+
+    void anisotropyLevelChanged(QSGTexture::AnisotropyLevel);
+    void filteringChanged(QSGTexture::Filtering);
+    void mipmapFilteringChanged(QSGTexture::Filtering);
+    void horizontalWrapModeChanged(QSGTexture::WrapMode);
+    void verticalWrapModeChanged(QSGTexture::WrapMode);
+
+    void detachAtlasTexturesChanged(bool);
 
 protected:
     void releaseResources() override;
-    void itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &value) override;
 
 private:
     QPointer<const QQuickItem> m_source;
     QRect m_rect;
 
     mutable QPointer<QSGTextureViewProvider> m_textureProvider;
-    mutable QMutex m_textureProviderMutex; // I'm not sure if this mutex is necessary
+
+    std::atomic<QSGTexture::AnisotropyLevel> m_anisotropyLevel = QSGTexture::AnisotropyNone;
+    std::atomic<QSGTexture::Filtering> m_filtering = (smooth() ? QSGTexture::Linear : QSGTexture::Nearest);
+    std::atomic<QSGTexture::WrapMode> m_horizontalWrapMode = QSGTexture::ClampToEdge;
+    std::atomic<QSGTexture::WrapMode> m_verticalWrapMode = QSGTexture::ClampToEdge;
+    // When there are mip maps, no mip map filtering should be fine (unlike no mip maps with mip map filtering):
+    // But we want to have mip map filtering by default if the texture has mip maps (if not, it won't be respected):
+    std::atomic<QSGTexture::Filtering> m_mipmapFiltering = QSGTexture::Linear;
+    std::atomic<bool> m_detachAtlasTextures = false;
 };
 
 #endif // TEXTUREPROVIDERITEM_HPP

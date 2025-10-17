@@ -40,6 +40,8 @@ extern const CGFloat VLCMediaLibrary720pWidth;
 extern const CGFloat VLCMediaLibrary720pHeight;
 extern const long long int VLCMediaLibraryMediaItemDurationDenominator;
 
+vlc_medialibrary_t * _Nullable getMediaLibrary(void);
+
 typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
     VLCMediaLibraryParentGroupTypeUnknown = VLC_ML_PARENT_UNKNOWN,
     VLCMediaLibraryParentGroupTypeAlbum = VLC_ML_PARENT_ALBUM,
@@ -97,15 +99,6 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 
 @end
 
-@interface VLCMediaLibraryMovie : NSObject
-
-- (instancetype)initWithMovie:(struct vlc_ml_movie_t *)p_movie;
-
-@property (readonly) NSString *summary;
-@property (readonly) NSString *imdbID;
-
-@end
-
 @interface VLCMediaLibraryShowEpisode : NSObject
 
 - (instancetype)initWithShowEpisode:(struct vlc_ml_show_episode_t *)p_showEpisode;
@@ -116,8 +109,6 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 @property (readonly) uint32_t seasonNumber;
 
 @end
-
-#pragma mark - Media library classes
 
 @protocol VLCLocallyManipulableItemProtocol <NSObject>
 
@@ -133,6 +124,7 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 @property (readonly) BOOL smallArtworkGenerated;
 @property (readonly) NSString *smallArtworkMRL;
 @property (readonly) NSString *displayString;
+@property (readonly) BOOL isFileBacked;
 @property (readonly) NSString *primaryDetailString;
 @property (readonly) NSString *secondaryDetailString;
 @property (readonly) NSString *durationString;
@@ -149,8 +141,18 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 @property (readonly) BOOL secondaryActionableDetail;
 @property (readonly) id<VLCMediaLibraryItemProtocol> secondaryActionableDetailLibraryItem;
 @property (readonly) NSArray<NSString *> *labels;
+@property (readonly) BOOL favorited;
+
+- (int)setFavorite:(BOOL)favorite;
+- (int)toggleFavorite;
 
 - (void)iterateMediaItemsWithBlock:(void (^)(VLCMediaLibraryMediaItem*))mediaItemBlock;
+
+@end
+
+// Base abstract class with common implementations of properties used by media library items.
+// Do not use directly -- subclass to create new media library item types.
+@interface VLCAbstractMediaLibraryItem : NSObject<VLCMediaLibraryItemProtocol>
 
 @end
 
@@ -168,17 +170,13 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 
 @end
 
-// Base abstract class with common implementations of properties used by media library items.
-// Do not use directly -- subclass to create new media library item types.
-@interface VLCAbstractMediaLibraryItem : NSObject<VLCMediaLibraryItemProtocol>
-
-@end
-
 // Like VLCAbstractMediaLibraryItem but with some additional functionality for audio groupings
 // such as artists and genres. Do not use directly, subclass instead.
 @interface VLCAbstractMediaLibraryAudioGroup : VLCAbstractMediaLibraryItem<VLCMediaLibraryAudioGroupProtocol>
 
 @end
+
+#pragma mark - Media library classes
 
 @interface VLCMediaLibraryArtist : VLCAbstractMediaLibraryAudioGroup<VLCMediaLibraryAudioGroupProtocol>
 
@@ -219,6 +217,7 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 
 @interface VLCMediaLibraryShow : VLCAbstractMediaLibraryItem<VLCMediaLibraryItemProtocol>
 
++ (nullable instancetype)showWithLibraryId:(int64_t)libraryId;
 - (instancetype)initWithShow:(struct vlc_ml_show_t *)p_show;
 
 @property (readonly) NSString *name;
@@ -228,6 +227,15 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 @property (readonly) uint32_t episodeCount;
 @property (readonly) uint32_t seasonCount;
 @property (readonly) NSArray<VLCMediaLibraryMediaItem *> *episodes;
+
+@end
+
+@interface VLCMediaLibraryMovie : VLCAbstractMediaLibraryItem <VLCMediaLibraryItemProtocol>
+
+- (instancetype)initWithMediaItem:(struct vlc_ml_media_t *)p_media;
+
+@property (readonly) NSString *summary;
+@property (readonly) NSString *imdbID;
 
 @end
 
@@ -306,8 +314,6 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 @property (readonly) float progress;
 @property (readonly) NSString *title;
 
-@property (readonly) BOOL favorited;
-
 @property (readonly, nullable) VLCMediaLibraryShowEpisode *showEpisode;
 @property (readonly, nullable) VLCMediaLibraryMovie *movie;
 
@@ -353,6 +359,9 @@ typedef NS_ENUM(NSUInteger, VLCMediaLibraryParentGroupType) {
 - (instancetype)initWithDisplayString:(NSString *)displayString
               withPrimaryDetailString:(nullable NSString *)primaryDetailString
             withSecondaryDetailString:(nullable NSString *)secondaryDetailString;
+
+- (instancetype)initWithDisplayString:(NSString *)displayString
+                       withMediaItems:(NSArray<VLCMediaLibraryMediaItem *> *)mediaItems;      
 
 @end
 

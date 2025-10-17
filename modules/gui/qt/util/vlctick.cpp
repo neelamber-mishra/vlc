@@ -29,47 +29,30 @@ int64_t roundNearestMultiple(int64_t number, int64_t multiple)
 
 }
 
-VLCTick::VLCTick()
-    : m_ticks(VLC_TICK_INVALID)
-{
-
-}
-
 VLCTick::VLCTick(vlc_tick_t ticks)
     : m_ticks(ticks)
-{
-}
+{}
 
-VLCTick::operator vlc_tick_t() const
-{
-    return m_ticks;
-}
-
-bool VLCTick::valid() const
-{
-    return m_ticks != VLC_TICK_INVALID;
-}
 
 bool VLCTick::isSubSecond() const
 {
-    return (MS_FROM_VLC_TICK(m_ticks) < 1000);
+    return asMilliseconds() < 1000;
 }
 
 bool VLCTick::isSubHour() const
 {
-    return (SEC_FROM_VLC_TICK(m_ticks) < 3600);
+    return asSeconds() < 3600;
 }
 
 QString VLCTick::formatHMS(int formatFlags) const
 {
-    if (m_ticks == VLC_TICK_INVALID)
+    if (!valid())
         return "--:--";
 
-    int64_t t_ms = MS_FROM_VLC_TICK(m_ticks);
     if (!isSubSecond() || !(formatFlags & SubSecondFormattedAsMS))
     {
         //truncate milliseconds toward 0
-        int64_t t_sec = t_ms / 1000;
+        int64_t t_sec = asSeconds();
         int sec = t_sec % 60;
         int min = (t_sec / 60) % 60;
         int hour = t_sec / 3600;
@@ -85,15 +68,15 @@ QString VLCTick::formatHMS(int formatFlags) const
                     .arg(sec, 2, 10, QChar('0'));
     }
     else
-        return qtr("%1 ms").arg(MS_FROM_VLC_TICK(m_ticks));
+        return qtr("%1 ms").arg(asMilliseconds());
 }
 
 QString VLCTick::formatLong(int formatFlags) const
 {
-    if (m_ticks == VLC_TICK_INVALID)
+    if (!valid())
         return "--:--";
 
-    int64_t t_ms = MS_FROM_VLC_TICK(m_ticks);
+    int64_t t_ms = asMilliseconds();
     if (t_ms >= 60*60*1000)
     {
         //round to the nearest minute
@@ -127,10 +110,10 @@ QString VLCTick::formatLong(int formatFlags) const
 
 QString VLCTick::formatShort(int formatFlags) const
 {
-    if (m_ticks == VLC_TICK_INVALID)
+    if (!valid())
         return "--:--";
 
-    int64_t t_ms = MS_FROM_VLC_TICK(m_ticks);
+    int64_t t_ms = asMilliseconds();
     if (t_ms >= 60*60*1000)
     {
         //round to the nearest minute
@@ -160,42 +143,131 @@ QString VLCTick::formatShort(int formatFlags) const
         return qtr("%1ms").arg(t_ms);
 }
 
-VLCTick VLCTick::scale(float scalar) const
-{
-    if (scalar == 0.0f)
-        return VLCTick(VLC_TICK_0); // to not decay to VLC_TICK_INVALID
-
-    return VLCTick(m_ticks * scalar);
-}
-
 int VLCTick::toSeconds() const
 {
-    if (m_ticks == VLC_TICK_INVALID)
-        return 0;
-
-    int64_t t_sec = SEC_FROM_VLC_TICK(m_ticks);
-    return t_sec;
+    return valid() ? asSeconds() : 0;
 }
 
 int VLCTick::toMinutes() const
 {
-    if (m_ticks == VLC_TICK_INVALID)
-        return 0;
-
-    int64_t t_sec = SEC_FROM_VLC_TICK(m_ticks);
-    return (t_sec / 60);
+    return asSeconds() / 60;
 }
 
 int VLCTick::toHours() const
 {
-    if (m_ticks == VLC_TICK_INVALID)
-        return 0;
-
-    int64_t t_sec = SEC_FROM_VLC_TICK(m_ticks);
-    return (t_sec / 3600);
+    return asSeconds() / 3600;
 }
 
-VLCTick VLCTick::fromMS(int64_t ms)
+int VLCTick::toMilliseconds() const
 {
-    return VLCTick(VLC_TICK_FROM_MS(ms));
+    return valid() ? asMilliseconds() : 0;
+}
+
+
+///// VLCDuration
+
+VLCDuration::VLCDuration()
+    : VLCTick(0)
+{
+}
+
+VLCDuration::VLCDuration(vlc_tick_t t)
+    : VLCTick(t)
+{
+}
+
+VLCDuration VLCDuration::operator*(double f) const
+{
+    return VLCDuration(m_ticks * f);
+}
+
+bool VLCDuration::operator==(const VLCDuration &rhs) const
+{
+    return m_ticks == rhs.m_ticks;
+}
+
+bool VLCDuration::operator>(const VLCDuration &rhs) const
+{
+    return m_ticks > rhs.m_ticks;
+}
+
+double VLCDuration::toSecf() const
+{
+    return secf_from_vlc_tick(m_ticks);
+}
+
+VLCDuration VLCDuration::scale(float scalar) const
+{
+    return VLCDuration(m_ticks * scalar);
+}
+
+VLCDuration VLCDuration::fromMS(int64_t ms)
+{
+    return VLCDuration(VLC_TICK_FROM_MS(ms));
+}
+
+int64_t VLCDuration::asMilliseconds() const
+{
+    return MS_FROM_VLC_TICK(m_ticks);
+}
+
+int64_t VLCDuration::asSeconds() const
+{
+    return SEC_FROM_VLC_TICK(m_ticks);
+}
+
+bool VLCDuration::valid() const
+{
+    return true;
+}
+
+///// VLCTime
+
+VLCTime::VLCTime()
+    : VLCTick(VLC_TICK_INVALID)
+{
+}
+
+VLCTime::VLCTime(vlc_tick_t t)
+    : VLCTick(t)
+{
+}
+
+VLCTime::VLCTime(VLCDuration d)
+    : VLCTick(VLC_TICK_0 + d.toVLCTick())
+{
+}
+
+VLCDuration VLCTime::operator-(const VLCTime &rhs) const
+{
+    if(m_ticks >= rhs.m_ticks)
+        return VLCDuration(m_ticks - rhs.m_ticks);
+    return VLCDuration();
+}
+
+bool VLCTime::operator<=(const VLCTime &rhs) const
+{
+    return m_ticks <= rhs.m_ticks;
+}
+
+VLCTime VLCTime::scale(float scalar) const
+{
+    if(!valid())
+        return VLCTime(VLC_TICK_INVALID);
+    return VLCTime(VLC_TICK_0 + ((m_ticks - VLC_TICK_0) * scalar));
+}
+
+int64_t VLCTime::asMilliseconds() const
+{
+    return MS_FROM_VLC_TICK(m_ticks - VLC_TICK_0);
+}
+
+int64_t VLCTime::asSeconds() const
+{
+    return SEC_FROM_VLC_TICK(m_ticks - VLC_TICK_0);
+}
+
+bool VLCTime::valid() const
+{
+    return m_ticks != VLC_TICK_INVALID;
 }

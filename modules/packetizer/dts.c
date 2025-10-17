@@ -46,7 +46,7 @@ static void Close( vlc_object_t * );
 vlc_module_begin ()
     set_subcategory( SUBCAT_SOUT_PACKETIZER )
     set_description( N_("DTS audio packetizer") )
-    set_capability( "packetizer", 10 )
+    set_capability( "audio packetizer", 10 )
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -92,6 +92,8 @@ static void PacketizeFlush( decoder_t *p_dec )
 static block_t *GetOutBuffer( decoder_t *p_dec )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
+    if (p_sys->i_input_size == 0)
+        return NULL;
 
     if( !p_sys->b_date_set
      || p_dec->fmt_out.audio.i_rate != p_sys->first.i_rate )
@@ -252,11 +254,14 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
                  * CORE...SUBSTREAM is regular extension.
                  * SUBSTREAM...CORE is sync issue.
                  */
-                p_dec->fmt_out.i_profile = PROFILE_DTS_EXPRESS;
-                p_sys->first.i_rate = xssheader.i_rate;
-                p_sys->first.i_frame_length = xssheader.i_frame_length;
-                p_sys->i_state = STATE_NEXT_SYNC;
-                break;
+                if (xssheader.i_rate != 0 && xssheader.i_frame_length != 0)
+                {
+                    p_dec->fmt_out.i_profile = PROFILE_DTS_EXPRESS;
+                    p_sys->first.i_rate = xssheader.i_rate;
+                    p_sys->first.i_frame_length = xssheader.i_frame_length;
+                    p_sys->i_state = STATE_NEXT_SYNC;
+                    break;
+                }
             }
 
             msg_Warn( p_dec, "substream without the paired core stream, skip it" );
@@ -302,8 +307,9 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
                          vlc_dts_header_IsSync( p_header, VLC_DTS_HEADER_SIZE ) )
                     {
                         p_sys->i_input_size = p_sys->i_next_offset = p_sys->first.i_frame_size - 1;
-                        /* reenter */
-                        break;
+                        assert(p_sys->i_input_size);
+                        if(p_sys->i_input_size >= VLC_DTS_HEADER_SIZE)
+                            break; /* reenter */
                     }
                     msg_Dbg( p_dec, "emulated sync word "
                              "(no sync on following frame)" );

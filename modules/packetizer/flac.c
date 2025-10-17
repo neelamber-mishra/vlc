@@ -46,7 +46,7 @@ static void Close(vlc_object_t *);
 vlc_module_begin()
     set_subcategory(SUBCAT_SOUT_PACKETIZER)
     set_description(N_("Flac audio packetizer"))
-    set_capability("packetizer", 50)
+    set_capability("audio packetizer", 50)
     set_callbacks(Open, Close)
 vlc_module_end()
 
@@ -488,9 +488,10 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
             }
 
             /* Copy from previous sync point up to to current (offset) */
-            block_PeekOffsetBytes( &p_sys->bytestream, p_sys->i_buf_offset,
-                                   &p_sys->p_buf[p_sys->i_buf_offset],
-                                    p_sys->i_offset - p_sys->i_buf_offset );
+            if( block_PeekOffsetBytes( &p_sys->bytestream, p_sys->i_buf_offset,
+                                       &p_sys->p_buf[p_sys->i_buf_offset],
+                                       p_sys->i_offset - p_sys->i_buf_offset ))
+                return NULL;
 
             /* update crc to include this data chunk */
             for( size_t i = p_sys->i_buf_offset; i < p_sys->i_offset - 2; i++ )

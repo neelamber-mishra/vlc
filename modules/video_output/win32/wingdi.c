@@ -60,7 +60,6 @@ vlc_module_end ()
 typedef struct vout_display_sys_t
 {
     struct event_thread_t    *video_wnd;
-    bool                     size_changed;
     bool                     place_changed;
 
     /* Our offscreen bitmap and its framebuffer */
@@ -130,22 +129,19 @@ static void Prepare(vout_display_t *vd, picture_t *picture,
     VLC_UNUSED(date);
     vout_display_sys_t *sys = vd->sys;
 
-    if (sys->place_changed || sys->size_changed)
+    if (sys->place_changed)
     {
         bool err = false;
         HWND hwnd = CommonVideoHWND(sys->video_wnd);
         HDC hdc = GetDC(hwnd);
-        if (sys->size_changed)
-            err |= ChangeSize(vd, hdc);
-        if (sys->place_changed)
-            err |= ChangePlace(vd, hdc);
+        err |= ChangeSize(vd, hdc);
+        err |= ChangePlace(vd, hdc);
         ReleaseDC(hwnd, hdc);
 
         if (unlikely(err))
             return;
 
         sys->place_changed = false;
-        sys->size_changed = false;
     }
 
     assert((LONG)picture->format.i_visible_width  == sys->bmiInfo.bmiHeader.biWidth &&
@@ -154,14 +150,18 @@ static void Prepare(vout_display_t *vd, picture_t *picture,
     plane_CopyPixels(&sys->pic_buf, picture->p);
 }
 
+static int SetDisplaySize(vout_display_t *vd, unsigned width, unsigned height)
+{
+    VLC_UNUSED(width); VLC_UNUSED(height);
+    vout_display_sys_t *sys = vd->sys;
+    CommonDisplaySizeChanged(sys->video_wnd);
+    return VLC_SUCCESS;
+}
+
 static int Control(vout_display_t *vd, int query)
 {
     vout_display_sys_t *sys = vd->sys;
     switch (query) {
-    case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
-        CommonDisplaySizeChanged(sys->video_wnd);
-        sys->size_changed = true;
-        break;
     case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
         sys->place_changed = true;
         break;
@@ -176,6 +176,7 @@ static const struct vlc_display_operations ops = {
     .close = Close,
     .prepare = Prepare,
     .display = Display,
+    .set_display_size = SetDisplaySize,
     .control = Control,
 };
 
@@ -193,8 +194,6 @@ static int Open(vout_display_t *vd,
     if (!sys)
         return VLC_ENOMEM;
 
-    sys->size_changed = true;
-    sys->place_changed = true;
     if (CommonWindowInit(vd, &sys->video_wnd, false))
         goto error;
 
@@ -313,6 +312,8 @@ static int Init(vout_display_t *vd, video_format_t *fmt)
     sys->off_dc = CreateCompatibleDC(window_dc);
 
     int err = ChangeSize(vd, window_dc);
+    if (err == VLC_SUCCESS)
+        err = ChangePlace(vd, window_dc);
     if (err != VLC_SUCCESS)
         DeleteDC(sys->off_dc);
 

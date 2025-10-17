@@ -29,6 +29,7 @@
 #include <vlc_common.h>
 #include <vlc_demux.h>
 #include <vlc_memstream.h>
+#include <assert.h>
 
 #include "../codec/webvtt/webvtt.h"
 
@@ -81,8 +82,8 @@ typedef struct
  *****************************************************************************/
 static int cue_Compare( const void *a_, const void *b_ )
 {
-    webvtt_cue_t *a = (webvtt_cue_t *)a_;
-    webvtt_cue_t *b = (webvtt_cue_t *)b_;
+    const webvtt_cue_t *a = a_;
+    const webvtt_cue_t *b = b_;
     if( a->i_start == b->i_start )
     {
         if( a->i_stop > b->i_stop )
@@ -318,6 +319,13 @@ static size_t getIndexByTime( demux_sys_t *p_sys, vlc_tick_t i_time )
 static void BuildIndex( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
+
+    if( p_sys->index.i_count == 0 )
+        return;
+    assert( p_sys->index.p_array != NULL );
+
+    if( p_sys->index.p_array == NULL )
+        return;
 
     /* Order time entries ascending, start time before end time */
     qsort( p_sys->index.p_array, p_sys->index.i_count,

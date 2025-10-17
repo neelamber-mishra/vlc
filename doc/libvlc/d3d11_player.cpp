@@ -668,6 +668,8 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
                     else if (strcmp(AspectRatio,"5:4")==0)
                         AspectRatio = "1:1";
                     else if (strcmp(AspectRatio,"1:1")==0)
+                        AspectRatio = "fill";
+                    else if (strcmp(AspectRatio,"fill")==0)
                         AspectRatio = NULL;
                     libvlc_video_set_aspect_ratio( ctx->p_mp, AspectRatio );
                 }
@@ -690,6 +692,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
     libvlc_instance_t *p_libvlc;
     libvlc_media_t *p_media;
     (void)hPrevInstance;
+
+    if (strlen(lpCmdLine) == 0)
+    {
+        printf("Usage: d3d11_player.exe <video_file_path>\nNo file path provided.\n");
+        return 1;
+    }
 
     /* remove "" around the given path */
     if (lpCmdLine[0] == '"')
@@ -716,7 +724,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.lpszClassName = "WindowClass";
+    wc.lpszClassName = TEXT("WindowClass");
 
     RegisterClassEx(&wc);
 
@@ -727,8 +735,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
     Context.client_area.height = wr.bottom - wr.top;
 
     Context.hWnd = CreateWindowEx(0,
-                          "WindowClass",
-                          "libvlc Demo app",
+                          TEXT("WindowClass"),
+                          TEXT("libvlc Demo app"),
                           WS_OVERLAPPEDWINDOW,
                           CW_USEDEFAULT, CW_USEDEFAULT,
                           Context.client_area.width,
@@ -752,6 +760,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
                                        &Context );
 
     libvlc_media_player_play( Context.p_mp );
+
+    printf("Available interactions:\n");
+    printf("  - Press 'a' key to cycle through aspect ratios\n");
+    printf("  - Left mouse click to toggle play/pause\n\n");
 
     MSG msg;
 

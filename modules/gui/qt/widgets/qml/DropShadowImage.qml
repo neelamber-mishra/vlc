@@ -20,6 +20,8 @@ import QtQuick
 
 import VLC.Util
 
+
+// WARNING: This is deprecated in favor of RoundedRectangleShadow, and may be removed at any time. Avoid using it.
 Item {
     implicitWidth: image.implicitWidth
     implicitHeight: image.implicitHeight
@@ -100,7 +102,7 @@ Item {
 
         supportsAtlasTextures: true
         blending: true
-        // cullMode: ShaderEffect.BackFaceCulling
+        // cullMode: ShaderEffect.BackFaceCulling // QTBUG-136611 (Layering breaks culling with OpenGL)
 
         readonly property Image source: image
 

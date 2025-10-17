@@ -21,7 +21,7 @@ import QtQml.Models
 import QtQuick.Layouts
 
 import VLC.MediaLibrary
-
+import VLC.MainInterface
 import VLC.Util
 import VLC.Widgets as Widgets
 import VLC.Style
@@ -204,7 +204,7 @@ Widgets.TableViewExt {
         showCriterias: (root.sortModel === root._modelSmall)
     }
 
-    MLAlbumTrackModel {
+    MLAudioModel {
         id: rootmodel
         ml: MediaLib
 
@@ -219,11 +219,47 @@ Widgets.TableViewExt {
                 section.property = ""
             }
         }
+
+        onLoadingChanged: {
+            if (loading) {
+                MainCtx.setCursor(root, Qt.BusyCursor)
+                visibilityTimer.start()
+            } else {
+                visibilityTimer.stop()
+                progressIndicator.visible = false
+                MainCtx.unsetCursor(root)
+            }
+        }
+
+        Component.onCompleted: {
+            loadingChanged() // in case boolean default value is `true`, currently it is not
+        }
     }
 
     MLContextMenu {
         id: contextMenu
 
         model: rootmodel
+    }
+
+    Widgets.ProgressIndicator {
+        id: progressIndicator
+
+        anchors.centerIn: parent
+        z: 99
+
+        visible: false
+
+        text: ""
+
+        Timer {
+            id: visibilityTimer
+
+            interval: VLCStyle.duration_humanMoment
+
+            onTriggered: {
+                progressIndicator.visible = true
+            }
+        }
     }
 }

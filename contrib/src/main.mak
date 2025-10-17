@@ -21,10 +21,10 @@ QTBASE_VERSION_MAJOR := 6.8
 QTBASE_VERSION := $(QTBASE_VERSION_MAJOR).3
 
 # Common download locations
-GNU ?= http://ftp.gnu.org/gnu
+GNU ?= https://ftpmirror.gnu.org/gnu
 SF := https://downloads.sourceforge.net/project
-VIDEOLAN := http://downloads.videolan.org/pub/videolan
-CONTRIB_VIDEOLAN := http://downloads.videolan.org/pub/contrib
+VIDEOLAN := https://downloads.videolan.org/pub/videolan
+CONTRIB_VIDEOLAN := https://downloads.videolan.org/pub/contrib
 VIDEOLAN_GIT := https://git.videolan.org/git
 GITHUB := https://github.com
 GOOGLE_CODE := https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com
@@ -105,13 +105,6 @@ CXX := clang++
 endif
 endif
 
-# -fno-stack-check is a workaround for a possible
-# bug in Xcode 11 or macOS 10.15+
-ifdef HAVE_DARWIN_OS
-EXTRA_CFLAGS += -fno-stack-check
-XCODE_FLAGS += OTHER_CFLAGS=-fno-stack-check
-endif
-
 ifdef HAVE_MACOSX
 EXTRA_CXXFLAGS += -stdlib=libc++
 ifeq ($(ARCH),aarch64)
@@ -159,6 +152,23 @@ endif
 
 ifneq ($(findstring clang, $(shell $(CC) --version 2>/dev/null)),)
 HAVE_CLANG := 1
+CLANG_VERSION := $(shell $(CC) --version | head -1 | grep -o '[0-9]\+\.' | head -1 | cut -d '.' -f 1)
+clang_at_least = $(shell [ $(CLANG_VERSION) -ge $(1) ] && echo true)
+clang_at_most  = $(shell [ $(CLANG_VERSION) -le $(1) ] && echo true)
+clang_major_is = $(shell [ $(CLANG_VERSION) -eq $(1) ] && echo true)
+else
+clang_at_least = $(shell echo false)
+clang_at_most  = $(shell echo false)
+clang_major_is = $(shell echo false)
+endif
+
+# -fno-stack-check is a workaround for a possible
+# bug in Xcode 11 or macOS 10.15+
+ifdef HAVE_DARWIN_OS
+ifeq ($(call clang_major_is, 11), true)
+EXTRA_CFLAGS += -fno-stack-check
+XCODE_FLAGS += OTHER_CFLAGS=-fno-stack-check
+endif
 endif
 
 cppcheck = $(shell printf '$(2)' | $(CC) $(CFLAGS) -E -dM - 2>/dev/null | grep -E $(1))
@@ -289,7 +299,7 @@ endif
 GIT ?= $(error git not found)
 
 ifeq ($(shell curl --version >/dev/null 2>&1 || echo FAIL),)
-download = curl -f -L -- "$(1)" > "$@"
+download = curl -f -L --retry 3 --output "$@" -- "$(1)"
 else ifeq ($(shell wget --version >/dev/null 2>&1 || echo FAIL),)
 download = (rm -f $@.tmp && \
 	wget --passive -c -p -O $@.tmp "$(1)" && \
@@ -429,6 +439,8 @@ check_githash = \
 
 ifeq ($(V),1)
 TAR_VERBOSE := v
+else
+ZIP_QUIET := -q
 endif
 
 checksum = \
@@ -442,7 +454,7 @@ UNPACK = $(RM) -R $@ \
 	$(foreach f,$(filter %.tar.gz %.tgz,$^), && tar $(TAR_VERBOSE)xzfo $(f)) \
 	$(foreach f,$(filter %.tar.bz2,$^), && tar $(TAR_VERBOSE)xjfo $(f)) \
 	$(foreach f,$(filter %.tar.xz,$^), && tar $(TAR_VERBOSE)xJfo $(f)) \
-	$(foreach f,$(filter %.zip,$^), && unzip $(f) $(UNZIP_PARAMS))
+	$(foreach f,$(filter %.zip,$^), && unzip $(ZIP_QUIET) $(f) $(UNZIP_PARAMS))
 UNPACK_DIR = $(patsubst %.tar,%,$(basename $(notdir $<)))
 APPLY = (cd $(UNPACK_DIR) && patch -fp1) <
 pkg_static = (cd $(UNPACK_DIR) && $(SRC_BUILT)/pkg-static.sh $(1))
@@ -526,6 +538,11 @@ ifdef HAVE_DARWIN_OS
 MESONFLAGS += -Dobjc_args="$(CFLAGS)" -Dobjc_link_args="$(LDFLAGS)" -Dobjcpp_args="$(CXXFLAGS)" -Dobjcpp_link_args="$(LDFLAGS)"
 endif
 
+MESONCOMPILEFLAGS =
+ifeq ($(V),1)
+MESONCOMPILEFLAGS += -v
+endif
+
 ifdef HAVE_CROSS_COMPILE
 # When cross-compiling meson uses the env vars like
 # CC, CXX, etc. and CFLAGS, CXXFLAGS, etc. for the
@@ -546,7 +563,7 @@ else
 MESON = $(HOSTTOOLS) meson setup $(MESONFLAGS)
 endif
 MESONCLEAN = rm -rf $(BUILD_DIR)/meson-private
-MESONBUILD = meson compile -C $(BUILD_DIR) $(MESON_BUILD) && meson install -C $(BUILD_DIR)
+MESONBUILD = meson compile -C $(BUILD_DIR) $(MESON_BUILD) $(MESONCOMPILEFLAGS) && meson install -C $(BUILD_DIR)
 
 # shared Qt config
 ifeq ($(call system_tool_majmin, qmake6 -query QT_VERSION 2>/dev/null),$(QTBASE_VERSION_MAJOR))
@@ -657,7 +674,7 @@ distclean: clean
 	$(RM) config.mak
 	unlink Makefile
 
-PREBUILT_URL=http://download.videolan.org/pub/videolan/contrib/$(HOST)/vlc-contrib-$(HOST)-latest.tar.bz2
+PREBUILT_URL=https://download.videolan.org/pub/videolan/contrib/$(HOST)/vlc-contrib-$(HOST)-latest.tar.bz2
 
 vlc-contrib-$(HOST)-latest.tar.bz2:
 	$(call download,$(PREBUILT_URL))
@@ -729,8 +746,24 @@ CMAKE_SYSTEM_NAME = WindowsStore
 endif
 endif
 endif
-ifdef HAVE_DARWIN_OS
+ifdef HAVE_MACOSX
 CMAKE_SYSTEM_NAME = Darwin
+else
+ifdef HAVE_TVOS
+CMAKE_SYSTEM_NAME = tvOS
+else
+ifdef HAVE_WATCHOS
+CMAKE_SYSTEM_NAME = watchOS
+else
+ifdef HAVE_XROS
+CMAKE_SYSTEM_NAME = visionOS
+else
+ifdef HAVE_IOS
+CMAKE_SYSTEM_NAME = iOS
+endif
+endif
+endif
+endif
 endif
 ifdef HAVE_EMSCRIPTEN
 CMAKE_SYSTEM_NAME = Emscripten
@@ -750,6 +783,18 @@ ifdef HAVE_CROSS_COMPILE
 endif
 endif
 ifdef HAVE_DARWIN_OS
+ifeq ($(ARCH),aarch64)
+	CMAKE_TOOLCHAIN_ENV += OSX_ARCHITECTURES="arm64"
+else
+ifeq ($(ARCH),arm)
+	CMAKE_TOOLCHAIN_ENV += OSX_ARCHITECTURES="armv7"
+else
+	CMAKE_TOOLCHAIN_ENV += OSX_ARCHITECTURES="$(ARCH)"
+endif
+endif
+ifdef VLC_DEPLOYMENT_TARGET
+	CMAKE_TOOLCHAIN_ENV += OSX_DEPLOYMENT_TARGET="$(VLC_DEPLOYMENT_TARGET)"
+endif
 ifdef HAVE_IOS
 	CMAKE_TOOLCHAIN_ENV += OSX_SYSROOT="$(IOS_SDK)"
 else
@@ -805,15 +850,43 @@ endif
 endif
 endif
 
-crossfile.meson: $(SRC)/gen-meson-machinefile.py
-	$(HOSTTOOLS) \
+MESON_CROSSFILE_ENV = $(HOSTTOOLS) \
 	CMAKE="$(shell command -v cmake)" \
-	WINDRES="$(WINDRES)" \
 	PKG_CONFIG="$(PKG_CONFIG)" \
 	HOST_SYSTEM="$(MESON_SYSTEM_NAME)" \
 	HOST_ARCH="$(subst i386,x86,$(ARCH))" \
-	HOST="$(HOST)" \
-	$(SRC)/gen-meson-machinefile.py $@
+	HOST="$(HOST)"
+
+ifdef HAVE_WIN32
+	MESON_CROSSFILE_ENV += WINDRES="$(WINDRES)"
+endif
+
+ifdef HAVE_DARWIN_OS
+ifdef HAVE_IOS
+	MESON_CROSSFILE_ENV += CFLAGS_BUILTIN="$(VLC_DEPLOYMENT_TARGET_CFLAG)"
+	MESON_CROSSFILE_ENV += CPPFLAGS_BUILTIN="$(VLC_DEPLOYMENT_TARGET_CFLAG)"
+	MESON_CROSSFILE_ENV += OBJCFLAGS_BUILTIN="$(VLC_DEPLOYMENT_TARGET_CFLAG)"
+	MESON_CROSSFILE_ENV += OBJCPPFLAGS_BUILTIN="$(VLC_DEPLOYMENT_TARGET_CFLAG)"
+	MESON_CROSSFILE_ENV += LDFLAGS_C_BUILTIN="$(VLC_DEPLOYMENT_TARGET_LDFLAG)"
+	MESON_CROSSFILE_ENV += LDFLAGS_CPP_BUILTIN="$(VLC_DEPLOYMENT_TARGET_LDFLAG)"
+	MESON_CROSSFILE_ENV += LDFLAGS_OBJC_BUILTIN="$(VLC_DEPLOYMENT_TARGET_LDFLAG)"
+	MESON_CROSSFILE_ENV += LDFLAGS_OBJCPP_BUILTIN="$(VLC_DEPLOYMENT_TARGET_LDFLAG)"
+	MESON_CROSSFILE_ENV += OSX_SYSROOT="$(IOS_SDK)"
+else
+	MESON_CROSSFILE_ENV += CFLAGS_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += CPPFLAGS_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += OBJCFLAGS_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += OBJCPPFLAGS_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += LDFLAGS_C_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += LDFLAGS_CPP_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += LDFLAGS_OBJC_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += LDFLAGS_OBJCPP_BUILTIN="-mmacosx-version-min=$(VLC_DEPLOYMENT_TARGET)"
+	MESON_CROSSFILE_ENV += OSX_SYSROOT="$(MACOSX_SDK)"
+endif
+endif
+
+crossfile.meson: $(SRC)/gen-meson-machinefile.py
+	$(MESON_CROSSFILE_ENV) $(SRC)/gen-meson-machinefile.py $@
 	cat $@
 
 # Default pattern rules

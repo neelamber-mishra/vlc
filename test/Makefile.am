@@ -54,6 +54,7 @@ check_PROGRAMS = \
 	test_modules_packetizer_mpegvideo \
 	test_modules_codec_hxxx_helper \
 	test_modules_keystore \
+	test_modules_demux_timestamps \
 	test_modules_demux_timestamps_filter \
 	test_modules_demux_ts_pes \
 	test_modules_playlist_m3u \
@@ -254,6 +255,7 @@ test_modules_keystore_SOURCES = modules/keystore/test.c
 test_modules_keystore_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_modules_tls_SOURCES = modules/misc/tls.c
 test_modules_tls_LDADD = $(LIBVLCCORE) $(LIBVLC)
+test_modules_demux_timestamps_SOURCES = modules/demux/timestamps.c
 test_modules_demux_timestamps_filter_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_modules_demux_timestamps_filter_SOURCES = modules/demux/timestamps_filter.c
 test_modules_demux_ts_pes_LDADD = $(LIBVLCCORE) $(LIBVLC)
@@ -426,12 +428,12 @@ libvlc_demux_dec_run_la_LIBADD += \
 	../modules/libsvcdsub_plugin.la \
 	../modules/libtextst_plugin.la \
 	../modules/libsubstx3g_plugin.la
-endif
 if HAVE_ZVBI
 libvlc_demux_dec_run_la_LIBADD += ../modules/libzvbi_plugin.la
 endif
 if HAVE_TELX
 libvlc_demux_dec_run_la_LIBADD += ../modules/libtelx_plugin.la
+endif
 endif
 EXTRA_LTLIBRARIES += libvlc_demux_dec_run.la
 
@@ -442,6 +444,11 @@ vlc_demux_run_LDFLAGS = -no-install -static
 vlc_demux_run_LDADD = libvlc_demux_run.la
 vlc_demux_dec_run_SOURCES = vlc-demux-run.c
 vlc_demux_dec_run_LDFLAGS = -no-install -static
+if HAVE_OSX
+vlc_demux_dec_run_LDFLAGS += -Xlinker -rpath -Xlinker "@executable_path/../lib/.libs/"
+vlc_demux_dec_run_LDFLAGS += -Xlinker -rpath -Xlinker "@executable_path/../src/.libs/"
+vlc_demux_dec_run_LDFLAGS += -Xlinker -rpath -Xlinker "@executable_path/../Frameworks/"
+endif
 vlc_demux_dec_run_LDADD = libvlc_demux_dec_run.la
 EXTRA_PROGRAMS += vlc-demux-run vlc-demux-dec-run
 

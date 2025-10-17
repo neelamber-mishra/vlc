@@ -101,7 +101,6 @@ static int vlc_vidsplit_Control(vout_display_t *vd, int query)
     (void) vd;
 
     switch (query) {
-        case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
@@ -330,6 +329,7 @@ static int vlc_vidsplit_Open(vout_display_t *vd,
 }
 
 vlc_module_begin()
+    add_shortcut("splitter")
     set_shortname(N_("Splitter"))
     set_description(N_("Video splitter display plugin"))
     set_subcategory(SUBCAT_VIDEO_VOUT)

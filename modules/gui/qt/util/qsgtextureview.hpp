@@ -26,13 +26,28 @@ class QSGTextureView : public QSGDynamicTexture
 {
     Q_OBJECT
 
-    QSGTexture* m_texture = nullptr;
+    QPointer<QSGTexture> m_texture;
     QRect m_rect;
     mutable std::optional<QRectF> m_normalRect;
     mutable bool m_normalRectChanged = false;
+    bool m_detachFromAtlasPending = false;
 
 private slots:
     bool adjustNormalRect() const;
+
+public slots:
+    // Reset the view texture state to the target texture state.
+    // NOTE: When `setTexture()` is called (regardless of if the texture pointer changes), this is called implicitly.
+    //       The reason for that is, some states such as mipmap filtering, is only applicable when the target texture
+    //       has mipmaps. Therefore it only makes sense to reset the state when the texture changes, because we do not
+    //       know if the new texture has mipmaps or not. At the same time, it is observed that `QSGTextureProvider::textureChanged()`
+    //       is also emitted when the texture pointer is the same but some states change (`QQuickImage` case), so for
+    //       convenience reasons this is also called when the texture pointer does not change upon `setTexture()` call,
+    //       as it is expected that if a texture provider uses this class, it would connect source texture change signal
+    //       to `setTexture()` here (as done in `QSGTextureViewProvider` at the moment).
+    // NOTE: This slot returns `true` if a state changes, and `false` otherwise.
+    // NOTE: This slot does not emit `updateRequested()` itself if a state changes.
+    bool resetState();
 
 public:
     QSGTextureView() = default;
@@ -60,6 +75,9 @@ public:
     void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 
     bool updateTexture() override;
+
+    // Detaches from atlas (when applicable) upon the next `commitTextureOperations()` call:
+    void requestDetachFromAtlas();
 
 signals:
     void updateRequested();

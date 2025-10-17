@@ -636,16 +636,10 @@ static void subtitles_positions_FinishUpdate(subtitles_positions_vector *subs)
     }
 }
 
-static struct subtitle_position_cache *subtitles_positions_FindRegion(
+static struct subtitle_position_cache *subtitles_positions_FindRelativeRegion(
     const subtitles_positions_vector *subs,
-    const subpicture_t *subpic,
     const subpicture_region_t *region)
 {
-    if (!subpic->b_subtitle)
-        return NULL;
-    if (region->b_absolute)
-        return NULL;
-
     struct subtitle_position_cache *pos;
     vlc_vector_foreach_ref(pos, subs)
     {
@@ -657,20 +651,14 @@ static struct subtitle_position_cache *subtitles_positions_FindRegion(
     return NULL;
 }
 
-static void subtitles_positions_AddRegion(subtitles_positions_vector *subs,
-                                          const subpicture_t *subpic,
+static void subtitles_positions_AddRelativeRegion(subtitles_positions_vector *subs,
                                           const subpicture_region_t *region,
-                                          const spu_area_t *area)
+                                          const spu_area_t *area,
+                                          struct subtitle_position_cache *write)
 {
-    assert(subpic->b_subtitle);
-    if (region->b_absolute)
-        return;
     if (area->width <= 0 && area->height <= 0)
         return;
 
-    // find existing
-    struct subtitle_position_cache *write =
-        subtitles_positions_FindRegion(subs, subpic, region);
     if (write == NULL)
     {
         if (unlikely(!vlc_vector_insert_hole(subs, subs->size, 1)))
@@ -1124,7 +1112,7 @@ static struct subpicture_region_rendered *SpuRenderRegion(spu_t *spu,
     if ((apply_scale && (scale_size.w != SCALE_UNIT || scale_size.h != SCALE_UNIT)) || convert_chroma)
     {
         /* Destroy the cache if unusable */
-        if (!subpicture_region_cache_IsValid(region)) {
+        if (subpicture_region_cache_IsValid(region)) {
             const video_format_t *cachefmt = subpicture_region_cache_GetFormat(region);
             bool is_changed = false;
 
@@ -1379,9 +1367,10 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
 
     subtitles_positions_StartUpdate(&sys->subs_pos);
 
-    subtitle_area = subtitle_area_buffer;
-    if (subtitle_region_count > ARRAY_SIZE(subtitle_area_buffer))
+    if (unlikely(subtitle_region_count > ARRAY_SIZE(subtitle_area_buffer)))
         subtitle_area = calloc(subtitle_region_count, sizeof(*subtitle_area));
+    else
+        subtitle_area = subtitle_area_buffer;
 
     /* Process all subpictures and regions (in the right order) */
     for (size_t index = 0; index < i_subpicture; index++) {
@@ -1468,22 +1457,24 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
             /* Check scale validity */
             assert(scale.w != 0 && scale.h != 0);
 
-            bool cached_is_absolute;
             bool cached_is_in_window;
             int cached_alignment;
             subpicture_t forced_subpic = *subpic;
-            struct subtitle_position_cache *cache_pos =
-                subtitles_positions_FindRegion(&sys->subs_pos, subpic, region);
-            if (cache_pos != NULL)
+            struct subtitle_position_cache *cache_pos = NULL;
+            if (subpic->b_subtitle && !region->b_absolute)
             {
-                region->i_x = cache_pos->x;
-                region->i_y = cache_pos->y;
-                cached_is_absolute = region->b_absolute;
-                cached_is_in_window = region->b_in_window;
-                cached_alignment = region->i_align;
-                region->i_align = SUBPICTURE_ALIGN_TOP | SUBPICTURE_ALIGN_LEFT;
-                region->b_absolute = true;
-                region->b_in_window = true;
+                cache_pos =
+                    subtitles_positions_FindRelativeRegion(&sys->subs_pos, region);
+                if (cache_pos != NULL)
+                {
+                    region->i_x = cache_pos->x;
+                    region->i_y = cache_pos->y;
+                    cached_is_in_window = region->b_in_window;
+                    cached_alignment = region->i_align;
+                    region->i_align = SUBPICTURE_ALIGN_TOP | SUBPICTURE_ALIGN_LEFT;
+                    region->b_absolute = true;
+                    region->b_in_window = true;
+                }
             }
 
             /* */
@@ -1497,7 +1488,7 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
             if (unlikely(output_last_ptr == NULL))
                 continue;
 
-            if (subpic_in_video || !region->b_absolute) {
+            if (subpic_in_video) {
                 // place the region inside the video area
                 output_last_ptr->place.x += video_position->x;
                 output_last_ptr->place.y += video_position->y;
@@ -1505,21 +1496,24 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
 
             if (cache_pos != NULL)
             {
-                region->b_absolute = cached_is_absolute;
+                region->b_absolute = false;
                 region->b_in_window = cached_is_in_window;
                 region->i_align = cached_alignment;
-                assert(output_last_ptr->place.x == cache_pos->x);
-                assert(output_last_ptr->place.y == cache_pos->y);
+                assert(area.x == cache_pos->x);
+                assert(area.y == cache_pos->y);
             }
 
             vlc_vector_push(&output->regions, output_last_ptr);
 
-            if (subpic->b_subtitle && !region->b_absolute) {
-                if (!external_scale)
-                    area = spu_area_unscaled(area, scale);
-                if (subtitle_area)
+            if (subpic->b_subtitle) {
+                if (likely(subtitle_area))
                     subtitle_area[subtitle_area_count++] = area;
-                subtitles_positions_AddRegion(&sys->subs_pos, subpic, region, &area);
+                if (!region->b_absolute)
+                {
+                    if (!external_scale)
+                        area = spu_area_unscaled(area, scale);
+                    subtitles_positions_AddRelativeRegion(&sys->subs_pos, region, &area, cache_pos);
+                }
             }
         }
     }

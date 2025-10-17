@@ -82,6 +82,8 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
                     else if (strcmp(AspectRatio,"5:4")==0)
                         AspectRatio = "1:1";
                     else if (strcmp(AspectRatio,"1:1")==0)
+                        AspectRatio = "fill";
+                    else if (strcmp(AspectRatio,"fill")==0)
                         AspectRatio = NULL;
                     libvlc_video_set_aspect_ratio( ctx->p_mediaplayer, AspectRatio );
                 }
@@ -127,7 +129,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.lpszClassName = "WindowClass";
+    wc.lpszClassName = TEXT("WindowClass");
 
     RegisterClassEx(&wc);
 
@@ -135,8 +137,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
     AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
 
     hWnd = CreateWindowEx(0,
-                          "WindowClass",
-                          "libvlc Demo app",
+                          TEXT("WindowClass"),
+                          TEXT("libvlc Demo app"),
                           WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                           CW_USEDEFAULT, CW_USEDEFAULT,
                           wr.right - wr.left,

@@ -58,7 +58,7 @@
                                                 <subviews>
                                                     <button translatesAutoresizingMaskIntoConstraints="NO" id="gAM-N6-20z" userLabel="Jump Back Button">
                                                         <rect key="frame" x="0.0" y="3" width="20.5" height="28"/>
-                                                        <buttonCell key="cell" type="bevel" bezelStyle="regularSquare" image="arrow.trianglehead.counterclockwise" catalog="system" imagePosition="only" alignment="center" alternateImage="backward.fill" controlSize="large" continuous="YES" imageScaling="proportionallyUpOrDown" id="ZMf-Wu-LAx">
+                                                        <buttonCell key="cell" type="bevel" bezelStyle="regularSquare" image="arrow.trianglehead.counterclockwise" catalog="system" imagePosition="only" alignment="center" alternateImage="arrow.trianglehead.counterclockwise" controlSize="large" continuous="YES" imageScaling="proportionallyUpOrDown" id="ZMf-Wu-LAx">
                                                             <behavior key="behavior" lightByContents="YES"/>
                                                             <font key="font" metaFont="system"/>
                                                         </buttonCell>
@@ -179,6 +179,9 @@
                                                             <constraint firstAttribute="width" constant="32" id="SWZ-0H-DDq"/>
                                                             <constraint firstAttribute="width" secondItem="tJC-hA-c4P" secondAttribute="height" multiplier="1:1" id="g7m-Pi-ahM"/>
                                                         </constraints>
+                                                        <connections>
+                                                            <action selector="volumeAction:" target="3" id="mVB-aT-y4J"/>
+                                                        </connections>
                                                     </button>
                                                     <slider verticalHuggingPriority="750" horizontalCompressionResistancePriority="800" translatesAutoresizingMaskIntoConstraints="NO" id="z4Z-7V-IQk" customClass="VLCVolumeSlider">
                                                         <rect key="frame" x="35" y="8" width="84" height="17"/>
@@ -266,6 +269,7 @@
                 <outlet property="timeField" destination="9" id="uzI-2c-bs3"/>
                 <outlet property="timeSlider" destination="20" id="AFS-sq-vuw"/>
                 <outlet property="volumeSlider" destination="z4Z-7V-IQk" id="njj-Ji-PGF"/>
+                <outlet property="muteVolumeButton" destination="tJC-hA-c4P" id="mVB-qt-x7M"/>
             </connections>
         </customObject>
     </objects>

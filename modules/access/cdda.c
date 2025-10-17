@@ -489,6 +489,7 @@ static musicbrainz_recording_t * GetMusicbrainzInfo( vlc_object_t *obj,
     if( psz_disc_id )
     {
         recording = musicbrainz_lookup_recording_by_discid( &cfg, psz_disc_id );
+        free( psz_disc_id );
     }
     else /* Fuzzy lookup using TOC */
     {
@@ -674,9 +675,6 @@ static void AccessGetMeta(stream_t *access, vlc_meta_t *meta)
                 const char *track_artist = cddb_track_get_artist(t);
                 if (NONEMPTY(track_artist))
                 {
-                    if (str == NULL)
-                        str = track_artist;
-                    else
                     if (strcmp(str, track_artist))
                     {
                         str = NULL;

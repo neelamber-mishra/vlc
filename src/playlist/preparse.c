@@ -34,7 +34,7 @@ typedef struct VLC_VECTOR(input_item_t *) media_vector_t;
 static void
 vlc_playlist_CollectChildren(vlc_playlist_t *playlist,
                              media_vector_t *dest,
-                             input_item_node_t *node)
+                             const input_item_node_t *node)
 {
     vlc_playlist_AssertLocked(playlist);
     for (int i = 0; i < node->i_children; ++i)
@@ -48,7 +48,7 @@ vlc_playlist_CollectChildren(vlc_playlist_t *playlist,
 
 int
 vlc_playlist_ExpandItem(vlc_playlist_t *playlist, size_t index,
-                        input_item_node_t *node)
+                        const input_item_node_t *node)
 {
     vlc_playlist_AssertLocked(playlist);
 
@@ -63,7 +63,7 @@ vlc_playlist_ExpandItem(vlc_playlist_t *playlist, size_t index,
 
 int
 vlc_playlist_ExpandItemFromNode(vlc_playlist_t *playlist,
-                                input_item_node_t *subitems)
+                                const input_item_node_t *subitems)
 {
     vlc_playlist_AssertLocked(playlist);
     input_item_t *media = subitems->p_item;
@@ -85,6 +85,7 @@ on_subtree_added(input_item_t *media, input_item_node_t *subtree,
     vlc_playlist_Lock(playlist);
     vlc_playlist_ExpandItemFromNode(playlist, subtree);
     vlc_playlist_Unlock(playlist);
+    input_item_node_Delete(subtree);
 }
 
 static void
@@ -109,7 +110,7 @@ static const input_item_parser_cbs_t preparser_callbacks = {
     .on_subtree_added = on_subtree_added,
 };
 
-void
+vlc_preparser_req_id
 vlc_playlist_AutoPreparse(vlc_playlist_t *playlist, input_item_t *input,
                           bool parse_subitems)
 {
@@ -136,7 +137,7 @@ vlc_playlist_AutoPreparse(vlc_playlist_t *playlist, input_item_t *input,
         enum input_item_type_e input_type = input_item_GetType(input, &input_net);
 
         if (input_net)
-            return;
+            return VLC_PREPARSER_REQ_ID_INVALID;
 
         switch (input_type)
         {
@@ -146,14 +147,15 @@ vlc_playlist_AutoPreparse(vlc_playlist_t *playlist, input_item_t *input,
             case ITEM_TYPE_PLAYLIST:
                 break;
             default:
-                return;
+                return VLC_PREPARSER_REQ_ID_INVALID;
         }
 
         int options = VLC_PREPARSER_TYPE_PARSE | VLC_PREPARSER_TYPE_FETCHMETA_LOCAL;
         if (parse_subitems)
             options |= VLC_PREPARSER_OPTION_SUBITEMS;
 
-        vlc_preparser_Push(playlist->parser, input, options,
-                           &preparser_callbacks, playlist);
+        return vlc_preparser_Push(playlist->parser, input, options,
+                                  &preparser_callbacks, playlist);
     }
+    return VLC_PREPARSER_REQ_ID_INVALID;
 }

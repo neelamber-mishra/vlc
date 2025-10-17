@@ -29,6 +29,7 @@
 
 #include <QString>
 #include <QUrl>
+#include <QVariant>
 
 template<typename T>
 class MLDeleter
@@ -95,21 +96,22 @@ void thumbnailCopy(const MLListRange<T> &list, O dst, const int max)
     }
 }
 
-QString urlToDisplayString(const QUrl &url);
-
 template<typename T>
-QUrl getParentURLFromMLItem(T *mlItem)
+QVariantList getVariantList(const QList<T> & desc)
 {
-    if (mlItem == nullptr)
-        return QUrl();
+    QVariantList list;
 
-    QString mrl = mlItem->getMRL();
-    QUrl fileUrl(mrl);
-    QUrl parentDirUrl = fileUrl.adjusted(QUrl::RemoveFilename);
+    for (const T & item : desc)
+    {
+        list.append(QVariant::fromValue(item));
+    }
 
-    return parentDirUrl;
+    return list;
 }
 
+QString urlToDisplayString(const QUrl &url);
+
+QUrl getParentURLFromURL(const QString &);
 QString getFirstSymbol(const QString &);
 
 #endif // MLHELPER_HPP

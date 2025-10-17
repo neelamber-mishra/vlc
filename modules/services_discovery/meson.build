@@ -5,6 +5,12 @@ vlc_modules += {
     'dependencies' : [threads_dep]
 }
 
+# Radio
+vlc_modules += {
+    'name' : 'radio',
+    'sources' : files('radio.c'),
+}
+
 # SAP
 vlc_modules += {
     'name' : 'sap',
@@ -53,6 +59,15 @@ if upnp_dep.found()
         'dependencies' : [upnp_dep, upnp_darwin_deps]
     }
 endif
+
+# PipeWire device list
+vlc_modules += {
+    'name' : 'pipewirelist',
+    'sources' : files('pipewire.c'),
+    'link_with' : [libvlc_pipewire],
+    'dependencies' : [pipewire_dep],
+    'enabled' : pipewire_dep.found(),
+}
 
 # Pulse device list
 if pulse_dep.found()

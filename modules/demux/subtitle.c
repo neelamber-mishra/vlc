@@ -35,10 +35,12 @@
 #include <vlc_common.h>
 #include <vlc_arrays.h>
 #include <vlc_plugin.h>
+#include <vlc_url.h>
 
 #include <ctype.h>
 #include <math.h>
 #include <assert.h>
+#include <stdckdint.h>
 
 #include <vlc_demux.h>
 #include <vlc_charset.h>
@@ -161,6 +163,7 @@ typedef struct
     es_out_id_t *es;
     bool        b_slave;
     bool        b_first_time;
+    bool        b_sorted;
 
     double      f_rate;
     vlc_tick_t  i_next_demux_date;
@@ -237,7 +240,7 @@ static int Demux( demux_t * );
 static int Control( demux_t *, int, va_list );
 
 static void Fix( demux_t * );
-static char * get_language_from_filename( const char * );
+static char *get_language_from_url(const char *);
 
 /*****************************************************************************
  * Decoder format output function
@@ -317,6 +320,7 @@ static int Open ( vlc_object_t *p_this )
 
     p_sys->b_slave = false;
     p_sys->b_first_time = true;
+    p_sys->b_sorted = false;
     p_sys->i_next_demux_date = 0;
     p_sys->f_rate = 1.0;
 
@@ -705,7 +709,7 @@ static int Open ( vlc_object_t *p_this )
     }
     else
     {
-        fmt.psz_language = get_language_from_filename( p_demux->psz_filepath );
+        fmt.psz_language = get_language_from_url( p_demux->psz_url );
         if( fmt.psz_language )
             msg_Dbg( p_demux, "selected '%s' as possible filename language substring of subtitle: %s",
                      fmt.psz_language, p_demux->psz_location );
@@ -857,6 +861,9 @@ static int Demux( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
 
+    if ( !p_sys->b_slave )
+        Fix( p_demux );
+
     vlc_tick_t i_barrier = p_sys->i_next_demux_date;
 
     while( p_sys->subtitles.i_current < p_sys->subtitles.i_count &&
@@ -914,9 +921,12 @@ static int subtitle_cmp( const void *first, const void *second )
 static void Fix( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
+    if (p_sys->b_sorted)
+        return;
 
     /* *** fix order (to be sure...) *** */
     qsort( p_sys->subtitles.p_array, p_sys->subtitles.i_count, sizeof( p_sys->subtitles.p_array[0] ), subtitle_cmp);
+    p_sys->b_sorted = true;
 }
 
 static int TextLoad( text_t *txt, stream_t *s )
@@ -1091,10 +1101,8 @@ static int ParseSubRipSubViewer( vlc_object_t *p_obj, subs_properties_t *p_props
         size_t i_len;
 
         i_len = s ? strlen( s ) : 0;
-        if( i_len <= 0 )
+        if( i_len == 0 )
         {
-            if (psz_text)
-                psz_text[i_old] = '\0';
             p_subtitle->psz_text = psz_text;
             return VLC_SUCCESS;
         }
@@ -1105,6 +1113,7 @@ static int ParseSubRipSubViewer( vlc_object_t *p_obj, subs_properties_t *p_props
 
         memcpy( &psz_text[i_old], s, i_len );
         psz_text[i_old + i_len + 0] = '\n';
+        psz_text[i_old + i_len + 1] = '\0';
         i_old += i_len + 1;
 
         /* replace [br] by \n */
@@ -1129,6 +1138,7 @@ static int subtitle_ParseSubRipTimingValue(vlc_tick_t *timing_value,
                                            const char *s, size_t length)
 {
     int h1, m1, s1, d1 = 0;
+    int64_t sec, ms, total;
 
     int count;
     if (sscanf(s, "%d:%d:%d,%d%n", &h1, &m1, &s1, &d1, &count) == 4
@@ -1147,8 +1157,14 @@ static int subtitle_ParseSubRipTimingValue(vlc_tick_t *timing_value,
     return VLC_EGENERIC;
 
 success:
+    if (ckd_mul(&sec, h1, 3600) ||
+        ckd_mul(&ms,  m1, 60) ||
+        ckd_add(&total, sec, ms) ||
+        ckd_add(&total, total, s1))
+        return VLC_EINVAL;
+
     (*timing_value) = VLC_TICK_0
-        + vlc_tick_from_sec(h1 * 3600 + m1 * 60 + s1)
+        + vlc_tick_from_sec(total)
         + VLC_TICK_FROM_MS(d1);
 
     return VLC_SUCCESS;
@@ -1194,16 +1210,28 @@ static int subtitle_ParseSubViewerTiming( subtitle_t *p_subtitle,
     int h1, m1, s1, d1, h2, m2, s2, d2;
 
     if( sscanf( s, "%d:%d:%d.%d,%d:%d:%d.%d",
-                &h1, &m1, &s1, &d1, &h2, &m2, &s2, &d2) == 8 )
-    {
-        p_subtitle->i_start = vlc_tick_from_sec( h1 * 3600 + m1 * 60 + s1) +
-                              VLC_TICK_FROM_MS( d1 ) + VLC_TICK_0;
+                &h1, &m1, &s1, &d1, &h2, &m2, &s2, &d2) != 8 )
+        return VLC_EGENERIC;
 
-        p_subtitle->i_stop  = vlc_tick_from_sec( h2 * 3600 + m2 * 60 + s2 ) +
-                              VLC_TICK_FROM_MS( d2 ) + VLC_TICK_0;
-        return VLC_SUCCESS;
-    }
-    return VLC_EGENERIC;
+    int64_t sec, ms, total;
+    if (ckd_mul(&sec, h1, 3600) ||
+        ckd_mul(&ms,  m1, 60) ||
+        ckd_add(&total, sec, ms) ||
+        ckd_add(&total, total, s1))
+        return VLC_EINVAL;
+
+    p_subtitle->i_start = vlc_tick_from_sec( total ) +
+                          VLC_TICK_FROM_MS( d1 ) + VLC_TICK_0;
+
+    if (ckd_mul(&sec, h2, 3600) ||
+        ckd_mul(&ms,  m2, 60) ||
+        ckd_add(&total, sec, ms) ||
+        ckd_add(&total, total, s2))
+        return VLC_EINVAL;
+
+    p_subtitle->i_stop  = vlc_tick_from_sec( total ) +
+                          VLC_TICK_FROM_MS( d2 ) + VLC_TICK_0;
+    return VLC_SUCCESS;
 }
 
 /* ParseSubViewer
@@ -2092,19 +2120,36 @@ static int ParsePSB( vlc_object_t *p_obj, subs_properties_t *p_props,
     return VLC_SUCCESS;
 }
 
-static int64_t ParseRealTime( char *psz, int *h, int *m, int *s, int *f )
+static vlc_tick_t ParseRealTime( const char *psz )
 {
-    if( *psz == '\0' ) return 0;
-    if( sscanf( psz, "%d:%d:%d.%d", h, m, s, f ) == 4 ||
-            sscanf( psz, "%d:%d.%d", m, s, f ) == 3 ||
-            sscanf( psz, "%d.%d", s, f ) == 2 ||
-            sscanf( psz, "%d:%d", m, s ) == 2 ||
-            sscanf( psz, "%d", s ) == 1 )
+    if( *psz == '\0' ) return VLC_TICK_0;
+    int h, m, s, f;
+    if( sscanf( psz, "%d:%d:%d.%d", &h, &m, &s, &f ) == 4 )
     {
-        return vlc_tick_from_sec((( *h * 60 + *m ) * 60 ) + *s )
-               + VLC_TICK_FROM_MS(*f * 10);
+        return vlc_tick_from_sec((( h * 60 + m ) * 60 ) + s )
+               + VLC_TICK_FROM_MS(f * 10) + VLC_TICK_0;
     }
-    else return VLC_EGENERIC;
+    if( sscanf( psz, "%d:%d.%d", &m, &s, &f ) == 3 )
+    {
+        return vlc_tick_from_sec(( m * 60 ) + s )
+               + VLC_TICK_FROM_MS(f * 10) + VLC_TICK_0;
+    }
+    if( sscanf( psz, "%d.%d", &s, &f ) == 2 )
+    {
+        return vlc_tick_from_sec( s )
+               + VLC_TICK_FROM_MS(f * 10) + VLC_TICK_0;
+    }
+    if( sscanf( psz, "%d:%d", &m, &s ) == 2 )
+    {
+        return vlc_tick_from_sec(( m * 60 ) + s )
+               + VLC_TICK_0;
+    }
+    if( sscanf( psz, "%d", &s ) == 1 )
+    {
+        return vlc_tick_from_sec( s )
+               + VLC_TICK_0;
+    }
+    return VLC_TICK_MIN;
 }
 
 static int ParseRealText( vlc_object_t *p_obj, subs_properties_t *p_props,
@@ -2117,8 +2162,6 @@ static int ParseRealText( vlc_object_t *p_obj, subs_properties_t *p_props,
 
     for( ;; )
     {
-        int h1 = 0, m1 = 0, s1 = 0, f1 = 0;
-        int h2 = 0, m2 = 0, s2 = 0, f2 = 0;
         const char *s = TextGetLine( txt );
         free( psz_text );
 
@@ -2135,25 +2178,33 @@ static int ParseRealText( vlc_object_t *p_obj, subs_properties_t *p_props,
         if( psz_temp != NULL )
         {
             char psz_end[12], psz_begin[12];
+            vlc_tick_t end = VLC_TICK_MIN;
             /* Line has begin and end */
-            if( ( sscanf( psz_temp,
+            if( sscanf( psz_temp,
                   "<%*[t|T]ime %*[b|B]egin=\"%11[^\"]\" %*[e|E]nd=\"%11[^\"]%*[^>]%[^\n\r]",
-                            psz_begin, psz_end, psz_text) != 3 ) &&
-                    /* Line has begin and no end */
-                    ( sscanf( psz_temp,
-                              "<%*[t|T]ime %*[b|B]egin=\"%11[^\"]\"%*[^>]%[^\n\r]",
-                              psz_begin, psz_text ) != 2) )
+                            psz_begin, psz_end, psz_text) == 3 )
+            {
+                end = ParseRealTime( psz_end );
+            }
+            else if ( sscanf( psz_temp,
+                                "<%*[t|T]ime %*[b|B]egin=\"%11[^\"]\"%*[^>]%[^\n\r]",
+                                psz_begin, psz_text ) != 2)
                 /* Line is not recognized */
             {
                 continue;
             }
 
             /* Get the times */
-            int64_t i_time = ParseRealTime( psz_begin, &h1, &m1, &s1, &f1 );
-            p_subtitle->i_start = VLC_TICK_0 + (i_time >= 0 ? i_time : 0);
+            vlc_tick_t i_time = ParseRealTime( psz_begin );
+            if (i_time != VLC_TICK_MIN)
+                p_subtitle->i_start = i_time;
+            else
+                p_subtitle->i_start = -1;
 
-            i_time = ParseRealTime( psz_end, &h2, &m2, &s2, &f2 );
-            p_subtitle->i_stop = VLC_TICK_0 + (i_time >= 0 ? i_time : -1);
+            if (end != VLC_TICK_MIN)
+                p_subtitle->i_stop = end;
+            else
+                p_subtitle->i_stop = -1;
             break;
         }
     }
@@ -2448,39 +2499,40 @@ static int ParseSCC( vlc_object_t *p_obj, subs_properties_t *p_props,
 
 /* Tries to extract language from common filename patterns PATH/filename.LANG.ext
    and PATH/Subs/x_LANG.ext (where 'x' is an integer). */
-static char * get_language_from_filename( const char * psz_sub_file )
+static char *get_language_from_url(const char *urlstr)
 {
-    char *psz_ret = NULL;
-    char *psz_tmp;
+    vlc_url_t url;
+    const char *filename = NULL;
+    char *ret = NULL;
 
-    if( !psz_sub_file )
+    assert(urlstr != NULL);
+
+    if (vlc_UrlParse(&url, urlstr) != 0)
         return NULL;
+    if (url.psz_path != NULL)
+        filename = strrchr(url.psz_path, '/');
+    if (filename != NULL) {
+        filename++; // skip forward slash
 
-    /* Remove path */
-    const char *psz_fname = strrchr( psz_sub_file, DIR_SEP_CHAR );
-    psz_fname = (psz_fname == NULL) ? psz_sub_file : psz_fname + 1;
+        const char *ext = strrchr(filename, '.');
 
-    char *psz_work = strdup( psz_fname );
-    if( !psz_work )
-        return NULL;
+        if (ext != NULL) {
+            /* Get string between last two periods, hopefully the language. */
+            const char *lang = memrchr(filename, '.', ext - filename);
 
-    psz_tmp = strrchr( psz_work, '.' ); /* Find extension */
-    if( psz_tmp )
-    {
-        psz_tmp[0] = '\0'; /* Remove it */
+            /* Otherwise try string after last underscore. */
+            if (lang == NULL)
+                lang = memrchr(filename, '_', ext - filename);
 
-        /* Get substr after next last period - hopefully our language string */
-        psz_tmp = strrchr( psz_work, '.' );
-        /* Otherwise try substr after last underscore for alternate pattern */
-        if( !psz_tmp )
-            psz_tmp = strchr( psz_work, '_' );
-
-        if( psz_tmp )
-            psz_ret = strdup(++psz_tmp);
+            if (lang != NULL) {
+                lang++; // skip period or underscore
+                ret = strndup(lang, ext - lang);
+            }
+       }
     }
 
-    free( psz_work );
-    return psz_ret;
+    vlc_UrlClean(&url);
+    return ret;
 }
 
 #ifdef ENABLE_TEST

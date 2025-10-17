@@ -182,10 +182,10 @@ libqt_plugin_la_SOURCES = \
 	medialibrary/mlalbum.hpp \
 	medialibrary/mlalbummodel.cpp \
 	medialibrary/mlalbummodel.hpp \
-	medialibrary/mlalbumtrack.cpp \
-	medialibrary/mlalbumtrack.hpp \
-	medialibrary/mlalbumtrackmodel.cpp \
-	medialibrary/mlalbumtrackmodel.hpp \
+	medialibrary/mlaudio.cpp \
+	medialibrary/mlaudio.hpp \
+	medialibrary/mlaudiomodel.cpp \
+	medialibrary/mlaudiomodel.hpp \
 	medialibrary/mlartist.cpp \
 	medialibrary/mlartist.hpp \
 	medialibrary/mlartistmodel.cpp \
@@ -213,10 +213,10 @@ libqt_plugin_la_SOURCES = \
 	medialibrary/mlmedia.hpp \
 	medialibrary/mlqueryparams.cpp \
 	medialibrary/mlqueryparams.hpp \
-	medialibrary/mlrecentsmodel.cpp \
-	medialibrary/mlrecentsmodel.hpp \
-	medialibrary/mlrecentsvideomodel.cpp \
-	medialibrary/mlrecentsvideomodel.hpp \
+	medialibrary/mlrecentmediamodel.cpp \
+	medialibrary/mlrecentmediamodel.hpp \
+	medialibrary/mlrecentvideomodel.cpp \
+	medialibrary/mlrecentvideomodel.hpp \
 	medialibrary/mlurlmodel.cpp \
 	medialibrary/mlurlmodel.hpp \
 	medialibrary/mlvideo.cpp \
@@ -225,6 +225,8 @@ libqt_plugin_la_SOURCES = \
 	medialibrary/mlvideofoldersmodel.hpp \
 	medialibrary/mlvideogroupsmodel.cpp \
 	medialibrary/mlvideogroupsmodel.hpp \
+	medialibrary/mlmediamodel.cpp \
+	medialibrary/mlmediamodel.hpp \
 	medialibrary/mlvideomodel.cpp \
 	medialibrary/mlvideomodel.hpp \
 	medialibrary/mlplaylist.cpp \
@@ -341,6 +343,8 @@ libqt_plugin_la_SOURCES = \
 	util/vlcqtmessagehandler.hpp \
 	util/colorizedsvgicon.cpp \
 	util/colorizedsvgicon.hpp \
+	util/textureproviderobserver.cpp \
+	util/textureproviderobserver.hpp \
 	widgets/native/animators.cpp \
 	widgets/native/animators.hpp \
 	widgets/native/customwidgets.cpp widgets/native/customwidgets.hpp \
@@ -431,7 +435,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	medialibrary/medialib.moc.cpp \
 	medialibrary/mlmediastore.moc.cpp \
 	medialibrary/mlalbummodel.moc.cpp \
-	medialibrary/mlalbumtrackmodel.moc.cpp \
+	medialibrary/mlaudiomodel.moc.cpp \
 	medialibrary/mlartistmodel.moc.cpp \
 	medialibrary/mlbookmarkmodel.moc.cpp \
 	medialibrary/mlbasemodel.moc.cpp \
@@ -440,10 +444,11 @@ nodist_libqt_plugin_la_SOURCES = \
 	medialibrary/mlthreadpool.moc.cpp \
 	medialibrary/mlqmltypes.moc.cpp \
 	medialibrary/mlmedia.moc.cpp \
-	medialibrary/mlrecentsmodel.moc.cpp \
-	medialibrary/mlrecentsvideomodel.moc.cpp \
+	medialibrary/mlrecentmediamodel.moc.cpp \
+	medialibrary/mlrecentvideomodel.moc.cpp \
 	medialibrary/mlurlmodel.moc.cpp \
 	medialibrary/mlvideo.moc.cpp \
+	medialibrary/mlmediamodel.moc.cpp \
 	medialibrary/mlvideomodel.moc.cpp \
 	medialibrary/mlplaylistlistmodel.moc.cpp \
 	medialibrary/mlplaylistmodel.moc.cpp \
@@ -498,6 +503,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	util/list_selection_model.moc.cpp \
 	util/vlchotkeyconverter.moc.cpp \
 	util/qsgtextureview.moc.cpp \
+	util/textureproviderobserver.moc.cpp \
 	widgets/native/animators.moc.cpp \
 	widgets/native/csdthemeimage.moc.cpp \
 	widgets/native/customwidgets.moc.cpp \
@@ -567,6 +573,7 @@ endif
 # X11 compositor
 
 if HAVE_X
+if HAVE_QT_XCB
 if HAVE_XCB
 if HAVE_XCB_DAMAGE
 if HAVE_XCB_XFIXES
@@ -610,7 +617,7 @@ if ENABLE_QT
 gui_LTLIBRARIES += libqt_x11_plugin.la
 endif
 
-
+endif
 endif
 endif
 endif
@@ -710,6 +717,7 @@ uic_verbose__0 = $(uic_verbose_0)
 
 MOC_CPPFLAGS = $(DEFS) \
 	-I$(top_srcdir)/include -I$(top_builddir)/include -I$(top_builddir) \
+	$(QT_MOC_INCLUDE_DIRS) \
 	$(QT_CFLAGS) \
 	$(libqt_plugin_la_CPPFLAGS)
 if HAVE_DARWIN
@@ -898,7 +906,6 @@ libqt_plugin_la_RES = \
 	pixmaps/menu/volume-muted.svg \
 	pixmaps/misc/cone.svg \
 	pixmaps/misc/new_indicator.svg \
-	pixmaps/misc/play_shadow.png \
 	pixmaps/misc/theme_dark.svg \
 	pixmaps/misc/theme_daynight.svg \
 	pixmaps/misc/theme_light.svg \
@@ -995,8 +1002,6 @@ libqml_module_maininterface_a_QML = \
 	maininterface/qml/MainInterface.qml \
 	maininterface/qml/MainViewLoader.qml \
 	maininterface/qml/MainDisplay.qml \
-	maininterface/qml/MainGridView.qml \
-	maininterface/qml/MainTableView.qml \
 	maininterface/qml/NoMedialibHome.qml
 nodist_libqml_module_maininterface_a_SOURCES = maininterface_qmlassets.cpp
 $(libqml_module_maininterface_a_QML:.qml=.cpp) : $(builddir)/maininterface/res.qrc
@@ -1009,6 +1014,9 @@ libqml_module_medialibrary_a_CPPFLAGS = $(libqt_plugin_la_CPPFLAGS)
 libqml_module_medialibrary_a_QML = \
 	medialibrary/qml/ArtistTopBanner.qml \
 	medialibrary/qml/AudioGridItem.qml \
+	medialibrary/qml/HomeDisplay.qml \
+	medialibrary/qml/HomePage.qml \
+	medialibrary/qml/MediaView.qml \
 	medialibrary/qml/VideoGroupDisplay.qml \
 	medialibrary/qml/MusicAlbums.qml \
 	medialibrary/qml/MusicAlbumsDisplay.qml \
@@ -1033,8 +1041,6 @@ libqml_module_medialibrary_a_QML = \
 	medialibrary/qml/PlaylistMedia.qml \
 	medialibrary/qml/PlaylistMediaDisplay.qml \
 	medialibrary/qml/VideoPlaylistsDisplay.qml \
-	medialibrary/qml/VideoRecentVideos.qml \
-	medialibrary/qml/VideoRecentVideosDisplay.qml \
 	medialibrary/qml/VideoGridItem.qml \
 	medialibrary/qml/VideoInfoExpandPanel.qml \
 	medialibrary/qml/VideoListDisplay.qml \
@@ -1269,7 +1275,7 @@ libqml_module_widgets_a_QML = \
 	widgets/qml/NavigableCol.qml \
 	widgets/qml/NavigableRow.qml \
 	widgets/qml/PlayCover.qml \
-	widgets/qml/RoundButton.qml \
+	widgets/qml/RoundButtonExt.qml \
 	widgets/qml/ScaledImage.qml \
 	widgets/qml/ScanProgressBar.qml \
 	widgets/qml/TextAutoScroller.qml \
@@ -1299,20 +1305,13 @@ libqml_module_widgets_a_QML = \
 	widgets/qml/PartialEffect.qml \
 	widgets/qml/ViewHeader.qml \
 	widgets/qml/ProgressIndicator.qml \
-	widgets/qml/RectangularGlow.qml \
 	widgets/qml/ImageExt.qml \
 	widgets/qml/ScrollBarExt.qml \
 	widgets/qml/FastBlend.qml \
-	widgets/qml/RadioButtonExt.qml
-if HAVE_QT65
-libqml_module_widgets_a_QML += \
-	widgets/qml/DynamicShadow.qml \
-	widgets/qml/BlurEffect.qml
-else
-libqml_module_widgets_a_QML += \
-	widgets/qml/compat/DynamicShadow.qml \
-	widgets/qml/compat/BlurEffect.qml
-endif
+	widgets/qml/RadioButtonExt.qml \
+	widgets/qml/RoundedRectangleShadow.qml \
+	widgets/qml/VoronoiSnow.qml \
+	widgets/qml/DualKawaseBlur.qml
 nodist_libqml_module_widgets_a_SOURCES = widgets_qmlassets.cpp
 $(libqml_module_widgets_a_QML:.qml=.cpp) : $(builddir)/widgets/res.qrc
 $(libqml_module_widgets_a_QML:.qml=.cpp) : QML_CACHEGEN_ARGS=--resource=$(builddir)/widgets/res.qrc
@@ -1353,15 +1352,19 @@ libqt_plugin_la_SHADER := shaders/FadingEdge.frag \
                           shaders/Noise.frag \
                           shaders/RectFilter.frag \
                           shaders/SubTexture.vert \
-                          shaders/HollowRectangularGlow.frag \
-                          shaders/RectangularGlow.frag \
                           shaders/SDFAARoundedTexture.frag \
                           shaders/SDFAARoundedTexture_cropsupport_bordersupport.frag \
                           shaders/DitheredTexture.frag \
                           shaders/FastBlend.frag \
                           shaders/FastBlend_additive.frag \
                           shaders/FastBlend_multiply.frag \
-                          shaders/FastBlend_screen.frag
+                          shaders/FastBlend_screen.frag \
+                          shaders/RoundedRectangleShadow.frag \
+                          shaders/RoundedRectangleShadow_hollow.frag \
+                          shaders/VoronoiSnow.frag \
+                          shaders/DualKawaseBlur_upsample.frag \
+                          shaders/DualKawaseBlur_downsample.frag \
+                          shaders/DualKawaseBlur_upsample_postprocess.frag
 if ENABLE_QT
 
 libqt_plugin_la_LIBADD += libqml_module_dialogs.a \

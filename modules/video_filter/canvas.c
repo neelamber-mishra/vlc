@@ -339,11 +339,13 @@ static int Activate( filter_t *p_filter )
     fmt.video.i_height = p_filter->fmt_in.video.i_height * fmt.video.i_visible_height / p_filter->fmt_in.video.i_visible_height;
 
     filter_chain_Reset( p_sys->p_chain, &p_filter->fmt_in, p_filter->vctx_in, &fmt );
+    es_format_Clean( &fmt );
     /* Append scaling module */
     int ret = filter_chain_AppendConverter( p_sys->p_chain, NULL );
     if ( ret != VLC_SUCCESS )
     {
         msg_Err( p_filter, "Could not append scaling filter" );
+        filter_chain_Delete( p_sys->p_chain );
         free( p_sys );
         return ret;
     }

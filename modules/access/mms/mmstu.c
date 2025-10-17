@@ -1128,14 +1128,14 @@ static int NetFillBuffer( stream_t *p_access )
         i_tcp_read =
             recv( p_sys->i_handle_tcp,
                   p_sys->buffer_tcp + p_sys->i_buffer_tcp,
-                  i_tcp + MMS_BUFFER_SIZE/2, 0 );
+                  MMS_BUFFER_SIZE - p_sys->i_buffer_tcp, 0 );
     }
 
     if( i_udp > 0 && ufd[i_tcp > 0].revents )
     {
         i_udp_read = recv( p_sys->i_handle_udp,
                            p_sys->buffer_udp + p_sys->i_buffer_udp,
-                           i_udp + MMS_BUFFER_SIZE/2, 0 );
+                           MMS_BUFFER_SIZE - p_sys->i_buffer_udp, 0 );
     }
 
 #ifdef MMS_DEBUG
@@ -1173,23 +1173,13 @@ static int  mms_ParseCommand( stream_t *p_access,
     uint32_t    i_id;
 
     free( p_sys->p_cmd );
-    if( (p_sys->p_cmd = malloc( i_data )) )
-    {
-        p_sys->i_cmd = i_data;
-        memcpy( p_sys->p_cmd, p_data, i_data );
-        *pi_used = i_data; /* by default */
-    }
-    else
-    {
-        *pi_used = p_sys->i_cmd = 0;
-        p_sys->i_command = 0;
-        return -1;
-    }
-
+    p_sys->p_cmd = NULL;
+    p_sys->i_cmd = 0;
+    p_sys->i_command = 0;
+    *pi_used = 0;
     if( i_data < MMS_CMD_HEADERSIZE )
     {
         msg_Warn( p_access, "truncated command (header incomplete)" );
-        p_sys->i_command = 0;
         return -1;
     }
     i_id =  GetDWLE( p_data + 4 );
@@ -1199,23 +1189,27 @@ static int  mms_ParseCommand( stream_t *p_access,
     {
         msg_Err( p_access,
                  "incorrect command header (0x%"PRIx32")", i_id );
-        p_sys->i_command = 0;
         return -1;
     }
 
-    if( i_length > p_sys->i_cmd )
+    if( i_length > i_data )
     {
         msg_Warn( p_access,
                   "truncated command (missing %zu bytes)",
                    (size_t)i_length - i_data  );
-        p_sys->i_command = 0;
         return -1;
     }
-    else if( i_length < p_sys->i_cmd )
+
+    if( (p_sys->p_cmd = malloc( i_length )) )
     {
-        p_sys->i_cmd = i_length;
-        *pi_used = i_length;
+        memcpy( p_sys->p_cmd, p_data, i_length );
     }
+    else
+    {
+        return -1;
+    }
+    p_sys->i_cmd = i_length;
+    *pi_used = i_length;
 
     msg_Dbg( p_access,
              "recv command start_sequence:0x%8.8x command_id:0x%8.8x length:%d len8:%d sequence 0x%8.8x len8_II:%d dir_comm:0x%8.8x",

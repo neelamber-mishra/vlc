@@ -43,6 +43,11 @@ FocusScope {
     property int leftPadding: 0
     property int rightPadding: 0
 
+    property int displayMarginEnd: 0
+
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     //---------------------------------------------------------------------------------------------
     // Functions
     //---------------------------------------------------------------------------------------------
@@ -116,6 +121,11 @@ FocusScope {
                 item.rightPadding = Qt.binding(function() {
                     return root.rightPadding
                 })
+
+                item.displayMarginEnd = Qt.binding(() => { return root.displayMarginEnd })
+
+                item.fadingEdge.enableBeginningFade = Qt.binding(() => { return root.enableBeginningFade })
+                item.fadingEdge.enableEndFade = Qt.binding(() => { return root.enableEndFade })
 
                 item.Navigation.upItem = searchField
                 item.Navigation.parentItem =  root

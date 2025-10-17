@@ -39,7 +39,6 @@ private:
 TextureProviderItem::~TextureProviderItem()
 {
     {
-        QMutexLocker lock(&m_textureProviderMutex);
         if (m_textureProvider)
         {
             // https://doc.qt.io/qt-6/qquickitem.html#graphics-resource-handling
@@ -63,7 +62,6 @@ QSGTextureProvider *TextureProviderItem::textureProvider() const
 {
     // This method is called from the rendering thread.
 
-    QMutexLocker lock(&m_textureProviderMutex);
     if (!m_textureProvider)
     {
         m_textureProvider = new QSGTextureViewProvider;
@@ -85,19 +83,51 @@ QSGTextureProvider *TextureProviderItem::textureProvider() const
             }
         };
 
-        const auto adjustRect = [provider = m_textureProvider](const QRect& rect) {
-            if (rect.isValid())
-                provider->setRect(rect);
+        const auto synchronizeState = [weakThis = QPointer(this), provider = m_textureProvider]() {
+            if (Q_UNLIKELY(!weakThis))
+                return;
+
+            provider->setFiltering(weakThis->m_filtering);
+            provider->setMipmapFiltering(weakThis->m_mipmapFiltering);
+            provider->setAnisotropyLevel(weakThis->m_anisotropyLevel);
+            provider->setHorizontalWrapMode(weakThis->m_horizontalWrapMode);
+            provider->setVerticalWrapMode(weakThis->m_verticalWrapMode);
+
+            if (weakThis->m_detachAtlasTextures)
+                provider->requestDetachFromAtlas();
         };
 
+        // These are going to be queued when necessary:
         connect(this, &TextureProviderItem::sourceChanged, m_textureProvider, adjustSource);
-        connect(this, &TextureProviderItem::rectChanged, m_textureProvider, adjustRect);
+        connect(this, &TextureProviderItem::rectChanged, m_textureProvider, &QSGTextureViewProvider::setRect);
+
+        connect(this, &TextureProviderItem::filteringChanged, m_textureProvider, &QSGTextureViewProvider::setFiltering);
+        connect(this, &TextureProviderItem::mipmapFilteringChanged, m_textureProvider, &QSGTextureViewProvider::setMipmapFiltering);
+        connect(this, &TextureProviderItem::anisotropyLevelChanged, m_textureProvider, &QSGTextureViewProvider::setAnisotropyLevel);
+        connect(this, &TextureProviderItem::horizontalWrapModeChanged, m_textureProvider, &QSGTextureViewProvider::setHorizontalWrapMode);
+        connect(this, &TextureProviderItem::verticalWrapModeChanged, m_textureProvider, &QSGTextureViewProvider::setVerticalWrapMode);
+
+        connect(this, &TextureProviderItem::detachAtlasTexturesChanged, m_textureProvider, [provider = m_textureProvider](bool detach) {
+            if (detach)
+                provider->requestDetachFromAtlas();
+        });
+
+        // When the target texture changes, the texture view may reset its state, so we need to synchronize in that case:
+        connect(m_textureProvider, &QSGTextureProvider::textureChanged, m_textureProvider, synchronizeState); // Executed in texture provider's thread
 
         // Initial adjustments:
         adjustSource(m_source);
-        adjustRect(m_rect);
+        if (m_rect.isValid())
+            m_textureProvider->setRect(m_rect);
+        synchronizeState();
     }
     return m_textureProvider;
+}
+
+void TextureProviderItem::resetTextureSubRect()
+{
+    m_rect = {};
+    emit rectChanged({});
 }
 
 void TextureProviderItem::invalidateSceneGraph()
@@ -106,7 +136,6 @@ void TextureProviderItem::invalidateSceneGraph()
 
     // This slot is called from the rendering thread.
     {
-        QMutexLocker lock(&m_textureProviderMutex);
         if (m_textureProvider)
         {
             delete m_textureProvider;
@@ -123,7 +152,6 @@ void TextureProviderItem::releaseResources()
     // QQuickItem::releaseResources() is guaranteed to have a valid window when it is called:
     assert(window());
     {
-        QMutexLocker lock(&m_textureProviderMutex);
         if (m_textureProvider)
         {
             window()->scheduleRenderJob(new TextureProviderCleaner(m_textureProvider), QQuickWindow::BeforeSynchronizingStage);
@@ -132,16 +160,6 @@ void TextureProviderItem::releaseResources()
     }
 
     QQuickItem::releaseResources();
-}
-
-void TextureProviderItem::itemChange(ItemChange change, const ItemChangeData &value)
-{
-    if (change == ItemDevicePixelRatioHasChanged)
-    {
-        emit dprChanged();
-    }
-
-    QQuickItem::itemChange(change, value);
 }
 
 void QSGTextureViewProvider::adjustTexture()
@@ -198,6 +216,19 @@ void QSGTextureViewProvider::setMipmapFiltering(QSGTexture::Filtering filter)
     if (m_textureView.mipmapFiltering() == filter)
         return;
 
+    if (filter != QSGTexture::Filtering::None)
+    {
+        const auto targetTexture = m_textureView.texture();
+        // If there is no target texture, we can accept mipmap filtering. When there becomes a target texture, `QSGTextureView` should
+        // consider this itself anyway if the new target texture has no mipmaps. Workarounds should probably not be over-conservative,
+        // we should not dismiss the case if there is no target texture now but the upcoming texture has mip maps.
+        if (targetTexture && !targetTexture->hasMipmaps())
+        {
+            // Having mip map filtering when there are no mip maps may be problematic with certain graphics backends (like OpenGL).
+            return;
+        }
+    }
+
     m_textureView.setMipmapFiltering(filter);
     emit textureChanged();
 }
@@ -236,4 +267,9 @@ void QSGTextureViewProvider::setVerticalWrapMode(QSGTexture::WrapMode vwrap)
 
     m_textureView.setVerticalWrapMode(vwrap);
     emit textureChanged();
+}
+
+void QSGTextureViewProvider::requestDetachFromAtlas()
+{
+    m_textureView.requestDetachFromAtlas();
 }

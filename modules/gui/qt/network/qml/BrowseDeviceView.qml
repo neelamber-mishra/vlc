@@ -41,6 +41,7 @@ FocusScope {
     readonly property int contentLeftMargin: _currentView?.contentLeftMargin ?? 0
     readonly property int contentRightMargin: _currentView?.contentRightMargin ?? 0
 
+    property int displayMarginBeginning: 0
     property int displayMarginEnd: 0
 
     readonly property int currentIndex: _currentView?.currentIndex ?? -1
@@ -54,6 +55,10 @@ FocusScope {
     property bool isSearchable: true
 
     readonly property bool hasGridListMode: true
+
+    // NOTE: Currently only respected by the table view:
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
 
     property Component header: Widgets.ViewHeader {
         view: root
@@ -72,6 +77,10 @@ FocusScope {
     }
 
     property string title
+
+    property bool interactive: true
+
+    property bool reuseItems: true
 
     // Aliases
 
@@ -140,9 +149,7 @@ FocusScope {
     function onClicked(model, index, modifier) {
         modelSelect.updateSelection(modifier, model.currentIndex, index)
 
-        model.currentIndex = index
-
-        forceActiveFocus()
+        _currentView.currentIndex = index
     }
 
     function onDoubleClicked(model, index) {
@@ -187,6 +194,7 @@ FocusScope {
                                                 ? -1
                                                 : root.maximumRows * nbItemPerRow
 
+            displayMarginBeginning: root.displayMarginBeginning
             displayMarginEnd: root.displayMarginEnd
 
             model: root.model
@@ -194,6 +202,10 @@ FocusScope {
             headerDelegate: root.header
 
             selectionModel: modelSelect
+
+            interactive: root.interactive
+
+            reuseItems: root.reuseItems
 
             Navigation.parentItem: root
 
@@ -285,7 +297,11 @@ FocusScope {
 
             rowHeight: VLCStyle.tableCoverRow_height
 
+            displayMarginBeginning: root.displayMarginBeginning
             displayMarginEnd: root.displayMarginEnd
+
+            fadingEdge.enableBeginningFade: root.enableBeginningFade
+            fadingEdge.enableEndFade: root.enableEndFade
 
             model: root.model
 
@@ -295,6 +311,10 @@ FocusScope {
             header: root.header
 
             selectionModel: modelSelect
+
+            interactive: root.interactive
+
+            reuseItems: root.reuseItems
 
             Navigation.parentItem: root
 

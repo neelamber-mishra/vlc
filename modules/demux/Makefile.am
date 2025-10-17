@@ -280,6 +280,7 @@ libts_plugin_la_SOURCES = demux/mpeg/ts.c demux/mpeg/ts.h \
         demux/mpeg/ts_metadata.c demux/mpeg/ts_metadata.h \
         demux/mpeg/ts_hotfixes.c demux/mpeg/ts_hotfixes.h \
         demux/mpeg/ts_strings.h demux/mpeg/ts_streams_private.h \
+        demux/mpeg/ts_packet.h \
         demux/mpeg/ts_pes.c demux/mpeg/ts_pes.h \
         demux/mpeg/ts_streamwrapper.h \
         demux/mpeg/pes.h \
@@ -392,7 +393,7 @@ libvlc_adaptive_la_SOURCES = \
     demux/adaptive/plumbing/FakeESOutID.hpp \
     demux/adaptive/plumbing/SourceStream.cpp \
     demux/adaptive/plumbing/SourceStream.hpp \
-    demux/adaptive/AbstractSource.hpp \
+    demux/adaptive/BlockStreamInterface.hpp \
     demux/adaptive/ID.hpp \
     demux/adaptive/ID.cpp \
     demux/adaptive/PlaylistManager.cpp \
@@ -406,6 +407,7 @@ libvlc_adaptive_la_SOURCES = \
     demux/adaptive/Streams.cpp \
     demux/adaptive/Streams.hpp \
     demux/adaptive/Time.hpp \
+    demux/adaptive/tools/Compatibility.hpp \
     demux/adaptive/tools/Conversions.hpp \
     demux/adaptive/tools/Conversions.cpp \
     demux/adaptive/tools/Debug.hpp \
@@ -413,6 +415,7 @@ libvlc_adaptive_la_SOURCES = \
     demux/adaptive/tools/FormatNamespace.hpp \
     demux/adaptive/tools/Helper.cpp \
     demux/adaptive/tools/Helper.h \
+    demux/adaptive/tools/Macros.hpp \
     demux/adaptive/tools/MovingAverage.hpp \
     demux/adaptive/tools/Properties.hpp \
     demux/adaptive/tools/Retrieve.cpp \

@@ -63,11 +63,18 @@ bool demux_sys_t::AnalyseAllSegmentsFound( demux_t *p_demux, matroska_stream_c *
     /* verify we can read this Segment */
     try
     {
-        p_l0->Read( p_stream1->estream, EBML_CLASS_CONTEXT(EbmlHead), i_upper_lvl, p_l0, true);
+        EbmlElement *el = nullptr;
+        p_l0->Read( p_stream1->estream, EBML_CLASS_CONTEXT(EbmlHead), i_upper_lvl, el, true);
+        if (i_upper_lvl != 0)
+        {
+            assert(el != nullptr);
+            delete el;
+        }
     }
     catch(...)
     {
         msg_Err(p_demux, "EBML Header Read failed");
+        delete p_l0;
         return false;
     }
 
@@ -75,6 +82,7 @@ bool demux_sys_t::AnalyseAllSegmentsFound( demux_t *p_demux, matroska_stream_c *
     if (std::string(doc_type) != "matroska" && std::string(doc_type) != "webm" )
     {
         msg_Err( p_demux, "Not a Matroska file : DocType = %s ", std::string(doc_type).c_str());
+        delete p_l0;
         return false;
     }
 
@@ -82,6 +90,7 @@ bool demux_sys_t::AnalyseAllSegmentsFound( demux_t *p_demux, matroska_stream_c *
     if (uint64_t(doc_read_version) > 5)
     {
         msg_Err( p_demux, "matroska file needs version %" PRId64 " but only versions 1 to 4 supported", uint64_t(doc_read_version));
+        delete p_l0;
         return false;
     }
 
@@ -175,7 +184,10 @@ bool demux_sys_t::PreloadLinked()
         return false;
 
     if ( unlikely(p_current_vsegment->CurrentEdition() == NULL) )
+    {
+        delete p_current_vsegment;
         return false;
+    }
 
     /* Set current chapter */
     msg_Dbg( &demuxer, "NEW START CHAPTER uid=%" PRId64, p_current_vsegment->CurrentChapter() && p_current_vsegment->CurrentChapter()->p_chapter ?
@@ -230,6 +242,7 @@ bool demux_sys_t::PreloadLinked()
                                     if ( st.tag_name == "TITLE" )
                                     {
                                         msg_Dbg( &demuxer, "Using title \"%s\" from tag for edition %" PRIu64, st.value.c_str (), i_ed_uid );
+                                        free(p_title->psz_name);
                                         p_title->psz_name = strdup( st.value.c_str () );
                                         break;
                                     }
@@ -282,13 +295,13 @@ bool demux_sys_t::FreeUnused()
 
 bool demux_sys_t::PreparePlayback( virtual_segment_c & new_vsegment )
 {
+    if ( !new_vsegment.CurrentSegment() )
+        return false;
+
     if ( p_current_vsegment != &new_vsegment )
     {
         if ( p_current_vsegment->CurrentSegment() != NULL )
             p_current_vsegment->CurrentSegment()->ESDestroy();
-
-        if( !new_vsegment.CurrentSegment() )
-            return false;
 
         p_current_vsegment = &new_vsegment;
         p_current_vsegment->CurrentSegment()->ESCreate();

@@ -58,21 +58,12 @@ FocusScope {
         anchors.fill: parent
 
         asynchronous: true
-        source: artist.cover || VLCStyle.noArtArtist
-        sourceSize: artist.cover ? Qt.size(Helpers.alignUp(Screen.desktopAvailableWidth, 32), 0)
+        source: root.artist.id ? (root.artist.cover || VLCStyle.noArtArtist) : "" // do not load the fallback image during initialization
+        sourceSize: artist.cover ? Qt.size(Helpers.alignUp(Screen.desktopAvailableWidth / 2, 32), 0)
                                  : undefined
         mipmap: !!artist.cover
-        // Fill mode is stretch when blur effect is used, otherwise an implicit layer is created.
-        // Having the fill mode stretch does not have a side effect here, because source size
-        // is still calculated as to preserve the aspect ratio as height is left empty (0) and the
-        // image is not shown stretched because it is invisible when blur effect is used:
-        // "If only one dimension of the size is set to greater than 0, the other dimension is
-        //  set in proportion to preserve the source image's aspect ratio. (The fillMode is
-        //  independent of this.)". Unfortunately with old Qt versions we can not do this
-        // because it does not seem to create a layer when fill mode (tiling is wanted)
-        // is changed at a later point.
-        fillMode: artist.cover ? ((visible || (MainCtx.qtVersion() < MainCtx.qtVersionCheck(6, 5, 0))) ? Image.PreserveAspectCrop : Image.Stretch)
-                                : Image.Tile
+
+        fillMode: artist.cover ? Image.PreserveAspectCrop : Image.Tile
 
         visible: !blurEffect.visible
         cache: (source === VLCStyle.noArtArtist)
@@ -86,38 +77,59 @@ FocusScope {
     Item {
         anchors.fill: background
 
-        // The texture is big, and the blur item should only draw the portion of it.
-        // If the blur effect creates an implicit layer, it properly adjusts the
-        // area that it needs to cover. However, as we don't want an additional
-        // layer that keeps getting updated every time the size changes, we feed
-        // the whole static texture. For that reason, we need clipping because
-        // the blur effect is applied to the whole texture and shown as whole:
-        clip: !blurEffect.sourceNeedsLayering
-
-        visible: (GraphicsInfo.shaderType === GraphicsInfo.RhiShader)
+        visible: (GraphicsInfo.shaderType === GraphicsInfo.RhiShader) && (root.artist.id) // do not display the effect during initialization
 
         // This blur effect does not create an implicit layer that is updated
         // each time the size changes. The source texture is static, so the blur
         // is applied only once and we adjust the viewport through the parent item
         // with clipping.
-        Widgets.BlurEffect {
+        Widgets.DualKawaseBlur {
             id: blurEffect
 
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
             anchors.right: parent.right
 
-            // If source image is tiled, layering is necessary:
-            readonly property bool sourceNeedsLayering: (background.fillMode !== Image.Stretch) ||
-                                                        (MainCtx.qtVersion() < MainCtx.qtVersionCheck(6, 5, 0))
+            // NOTE: No need to disable `live`, as this uses two pass mode so there is no video memory saving benefit.
+
+            readonly property bool sourceNeedsTiling: (background.fillMode === Image.Tile)
 
             readonly property real aspectRatio: (background.implicitHeight / background.implicitWidth)
 
-            height: sourceNeedsLayering ? background.height : (aspectRatio * width)
+            height: sourceNeedsTiling ? background.height : (aspectRatio * width)
 
-            source: background
+            source: textureProviderItem
 
-            radius: VLCStyle.dp(4, VLCStyle.scale)
+            // Instead of clipping in the parent, denote the viewport here so we both
+            // do not need to clip the excess, and also save significant video memory:
+            viewportRect: !blurEffect.sourceNeedsLayering ? Qt.rect((width - parent.width) / 2, (height - parent.height) / 2, parent.width, parent.height)
+                                                          : Qt.rect(0, 0, 0, 0)
+
+            Widgets.TextureProviderItem {
+                id: textureProviderItem
+
+                // Like in `Player.qml`, this is used because when the source is
+                // mipmapped, sometimes it can not be sampled. This is considered
+                // a Qt bug, but `QSGTextureView` has a workaround for that. So,
+                // we can have an indirection here through `TextureProviderItem`.
+                // This is totally acceptable as there is virtually no overhead.
+
+                source: background
+
+                detachAtlasTextures: blurEffect.sourceNeedsTiling
+
+                horizontalWrapMode: blurEffect.sourceNeedsTiling ? Widgets.TextureProviderItem.Repeat : Widgets.TextureProviderItem.ClampToEdge
+                verticalWrapMode: blurEffect.sourceNeedsTiling ? Widgets.TextureProviderItem.Repeat : Widgets.TextureProviderItem.ClampToEdge
+
+                textureSubRect: blurEffect.sourceNeedsTiling ? Qt.rect(blurEffect.width / 8,
+                                                                       blurEffect.height / 8,
+                                                                       blurEffect.width * 1.25,
+                                                                       blurEffect.height * 1.25) : undefined
+            }
+
+            // Strong blurring is not wanted here:
+            configuration: Widgets.DualKawaseBlur.Configuration.TwoPass
+            radius: 1
         }
     }
 
@@ -146,12 +158,13 @@ FocusScope {
 
             Widgets.ImageExt {
                 id: roundImage
-                source: artist.cover || VLCStyle.noArtArtist
+                source: root.artist.id ? (root.artist.cover || VLCStyle.noArtArtist) : "" // do not load the fallback image during initialization
                 sourceSize: Qt.size(width * eDPR, height * eDPR)
                 anchors.fill: parent
                 radius: VLCStyle.cover_normal
                 borderColor: theme.border
                 borderWidth: VLCStyle.dp(1, VLCStyle.scale)
+                fillMode: Image.PreserveAspectCrop
                 readonly property real eDPR: MainCtx.effectiveDevicePixelRatio(Window.window)
             }
         }
@@ -204,6 +217,8 @@ FocusScope {
                         //we probably want to keep this button like the other action buttons
                         colorContext.palette: VLCStyle.palette
 
+                        showText: actionButtons.width > VLCStyle.colWidth(2)
+
                         onClicked: MediaLib.addAndPlay( artist.id )
                     }
 
@@ -212,6 +227,8 @@ FocusScope {
                         iconTxt: VLCIcons.enqueue
                         text: qsTr("Enqueue all")
                         onClicked: MediaLib.addToPlaylist( artist.id )
+
+                        showText: actionButtons.width > VLCStyle.colWidth(2)
                     }
                 }
             }

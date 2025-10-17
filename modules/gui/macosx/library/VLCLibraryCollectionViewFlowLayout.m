@@ -29,6 +29,7 @@
 
 #import "library/audio-library/VLCLibraryAudioDataSource.h"
 #import "library/audio-library/VLCLibraryAudioGroupDataSource.h"
+#import "library/audio-library/VLCLibraryCollectionViewAudioGroupSupplementaryDetailView.h"
 
 #pragma mark - Private data
 static const NSUInteger kAnimationSteps = 32;
@@ -193,6 +194,25 @@ static CVReturn detailViewAnimationCallback(CVDisplayLinkRef displayLink,
         [self.collectionView.animator scrollRectToVisible:frame];
     } else {
         _animationIsCollapse = NO;
+        
+        if ([self.collectionView.dataSource conformsToProtocol:@protocol(VLCLibraryCollectionViewDataSource)]) {
+            id<VLCLibraryCollectionViewDataSource> const libraryDataSource = 
+                (id<VLCLibraryCollectionViewDataSource>)self.collectionView.dataSource;
+            NSString * const supplementaryDetailViewKind = libraryDataSource.supplementaryDetailViewKind;
+            if (supplementaryDetailViewKind != nil && supplementaryDetailViewKind.length > 0) {
+                NSSet<NSIndexPath *> * const visibleSupplementaryIndexPaths = 
+                    [self.collectionView indexPathsForVisibleSupplementaryElementsOfKind:supplementaryDetailViewKind];
+                
+                for (NSIndexPath * const supplementaryIndexPath in visibleSupplementaryIndexPaths) {
+                    VLCLibraryCollectionViewSupplementaryDetailView * const supplementaryView = 
+                        (VLCLibraryCollectionViewSupplementaryDetailView *)[self.collectionView supplementaryViewForElementKind:supplementaryDetailViewKind atIndexPath:supplementaryIndexPath];
+                    if (supplementaryView != nil) {
+                        supplementaryView.selectedItem = [self.collectionView itemAtIndexPath:indexPath];
+                        supplementaryView.needsDisplay = YES;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -312,10 +332,14 @@ static CVReturn detailViewAnimationCallback(CVDisplayLinkRef displayLink,
     BOOL isLibrarySupplementaryView = NO;
 
     if ([elementKind isEqualToString:VLCLibraryCollectionViewMediaItemListSupplementaryDetailViewKind] ||
-               [elementKind isEqualToString:VLCLibraryCollectionViewMediaItemSupplementaryDetailViewKind]) {
+        [elementKind isEqualToString:VLCLibraryCollectionViewMediaItemSupplementaryDetailViewKind]) {
 
         isLibrarySupplementaryView = YES;
         _animationType = self.scrollDirection == NSCollectionViewScrollDirectionVertical ? VLCExpandAnimationTypeVerticalMedium : VLCExpandAnimationTypeHorizontalMedium;
+    } else if ([elementKind isEqualToString:VLCLibraryCollectionViewAudioGroupSupplementaryDetailViewKind]) {
+
+        isLibrarySupplementaryView = YES;
+        _animationType = self.scrollDirection == NSCollectionViewScrollDirectionVertical ? VLCExpandAnimationTypeVerticalLarge : VLCExpandAnimationTypeHorizontalLarge;
     }
 
     if(isLibrarySupplementaryView) {
@@ -357,7 +381,8 @@ static CVReturn detailViewAnimationCallback(CVDisplayLinkRef displayLink,
 - (NSSet<NSIndexPath *> *)indexPathsToDeleteForSupplementaryViewOfKind:(NSString *)elementKind
 {
     if ([elementKind isEqualToString:VLCLibraryCollectionViewMediaItemListSupplementaryDetailViewKind] ||
-        [elementKind isEqualToString:VLCLibraryCollectionViewMediaItemSupplementaryDetailViewKind]) {
+        [elementKind isEqualToString:VLCLibraryCollectionViewMediaItemSupplementaryDetailViewKind] ||
+        [elementKind isEqualToString:VLCLibraryCollectionViewAudioGroupSupplementaryDetailViewKind]) {
 
         return [self.collectionView indexPathsForVisibleSupplementaryElementsOfKind:elementKind];
     }

@@ -41,7 +41,8 @@ extern NSString * const VLCInputItemCommonDataDifferingFlagString;
 
 @interface VLCInputItem : NSObject<VLCLocallyManipulableItemProtocol>
 
-- (instancetype)initWithInputItem:(struct input_item_t *)p_inputItem;
++ (nullable instancetype)inputItemFromURL:(NSURL *)url;
+- (nullable instancetype)initWithInputItem:(struct input_item_t *)p_inputItem;
 
 @property (readonly) struct input_item_t *vlcInputItem;
 @property (readonly) NSString *MRL;

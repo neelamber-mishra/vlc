@@ -1029,7 +1029,7 @@ static chunk_t* generate_new_chunk(
         fragments_accum += (
             (hds_stream->segment_runs[srun_entry+1].first_segment -
              hds_stream->segment_runs[srun_entry].first_segment) *
-            hds_stream->segment_runs[srun_entry].fragments_per_segment );
+            (uint64_t)hds_stream->segment_runs[srun_entry].fragments_per_segment );
     }
 
     chunk->seg_num = segment;
@@ -1327,13 +1327,20 @@ static int parse_Manifest( stream_t *s, manifest_t *m )
         switch( type )
         {
         case XML_READER_STARTELEM:
-            if( current_element_idx == 0 && element_stack[current_element_idx] == 0 ) {
+            if( current_element_idx == 0 && element_stack[current_element_idx] == NULL ) {
                 if( !( element_stack[current_element_idx] = strdup( node ) ) )
                 {
                     free(media_id);
                     return VLC_ENOMEM;
                 }
             } else {
+                if( current_element_idx == MAX_XML_DEPTH - 1u )
+                {
+                    msg_Err( s, "Too many XML elements, quitting" );
+                    free(media_id);
+                    return VLC_EGENERIC;
+                }
+
                 if ( !( element_stack[++current_element_idx] = strdup( node ) ) )
                 {
                     free(media_id);
@@ -1353,7 +1360,7 @@ static int parse_Manifest( stream_t *s, manifest_t *m )
 
             free( current_element );
             current_element = NULL;
-            element_stack[current_element_idx--] = 0;
+            element_stack[current_element_idx--] = NULL;
             break;
         }
 

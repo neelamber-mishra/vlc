@@ -38,6 +38,7 @@
 #include "ts_pid.h"
 #include "ts_streams.h"
 #include "ts_streams_private.h"
+#include "ts_packet.h"
 #include "ts_pes.h"
 #include "ts_psi.h"
 #include "ts_si.h"
@@ -182,28 +183,17 @@ static bool PIDReferencedByProgram( const ts_pmt_t *, uint16_t );
 void UpdatePESFilters( demux_t *p_demux, bool b_all );
 static inline void FlushESBuffer( ts_stream_t *p_pes );
 static void UpdatePIDScrambledState( demux_t *p_demux, ts_pid_t *p_pid, bool );
-static inline int PIDGet( block_t *p )
-{
-    return ( (p->p_buffer[1]&0x1f)<<8 )|p->p_buffer[2];
-}
-static stime_t GetPCR( const block_t * );
 
 static block_t * ProcessTSPacket( demux_t *p_demux, ts_pid_t *pid, block_t *p_pkt, int * );
 static bool GatherSectionsData( demux_t *p_demux, ts_pid_t *, block_t *, size_t );
 static bool GatherPESData( demux_t *p_demux, ts_pid_t *, block_t *, size_t );
-static void ProgramSetPCR( demux_t *p_demux, ts_pmt_t *p_prg, stime_t i_pcr );
+static void ProgramSetPCR( demux_t *p_demux, ts_pmt_t *p_prg, vlc_tick_t i_pcr );
 
 static block_t* ReadTSPacket( demux_t *p_demux );
-static int SeekToTime( demux_t *p_demux, const ts_pmt_t *, stime_t time );
+static int SeekToTime( demux_t *p_demux, const ts_pmt_t *, vlc_tick_t time );
 static void ReadyQueuesPostSeek( demux_t *p_demux );
-static void PCRHandle( demux_t *p_demux, ts_pid_t *, stime_t );
+static void PCRHandle( demux_t *p_demux, ts_pid_t *, ts_90khz_t );
 static void PCRFixHandle( demux_t *, ts_pmt_t *, block_t * );
-
-#define TS_PACKET_SIZE_188 188
-#define TS_PACKET_SIZE_192 192
-#define TS_PACKET_SIZE_204 204
-#define TS_PACKET_SIZE_MAX 204
-#define TS_HEADER_SIZE 4
 
 #define PROBE_CHUNK_COUNT 500
 #define PROBE_MAX         (PROBE_CHUNK_COUNT * 10)
@@ -411,7 +401,7 @@ static int Open( vlc_object_t *p_this )
 
     vlc_dictionary_init( &p_sys->attachments, 0 );
 
-    p_sys->patfix.i_first_dts = -1;
+    p_sys->patfix.i_first_dts = VLC_TICK_INVALID;
     p_sys->patfix.i_timesourcepid = 0;
     p_sys->patfix.b_pcrhasnopcrfield = false;
     p_sys->patfix.status = var_CreateGetBool( p_demux, "ts-patfix" ) ? PAT_WAITING : PAT_FIXTRIED;
@@ -430,6 +420,8 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    /* SetPIDFilter() will read b_access_control, so initialize it first */
+    p_sys->b_access_control = true;
     p_sys->b_access_control = ( VLC_SUCCESS == SetPIDFilter( p_sys, patpid, true ) );
 
     p_sys->i_pmt_es = 0;
@@ -698,8 +690,8 @@ static int Demux( demux_t *p_demux )
         }
 
         /* Adaptation field cannot be scrambled */
-        stime_t i_pcr = GetPCR( p_pkt );
-        if( i_pcr >= 0 )
+        ts_90khz_t i_pcr = GetPCR( p_pkt );
+        if( i_pcr != TS_90KHZ_INVALID )
             PCRHandle( p_demux, p_pid, i_pcr );
 
         /* Probe streams to build PAT/PMT after MIN_PAT_INTERVAL in case we don't see any PAT */
@@ -707,8 +699,7 @@ static int Demux( demux_t *p_demux )
             (p_pkt->p_buffer[1] & 0xC0) == 0x40 && /* Payload start but not corrupt */
             (p_pkt->p_buffer[3] & 0xD0) == 0x10 )  /* Has payload but is not encrypted */
         {
-            ProbePES( p_demux, p_pid, p_pkt->p_buffer + TS_HEADER_SIZE,
-                      p_pkt->i_buffer - TS_HEADER_SIZE, p_pkt->p_buffer[3] & 0x20 /* Adaptation field */);
+            ProbePES( p_demux, p_pid, p_pkt );
         }
 
         switch( p_pid->type )
@@ -909,6 +900,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     double f, *pf;
     bool b_bool, *pb_bool;
     int64_t i64;
+    uint64_t u64;
     int i_int;
     const ts_pmt_t *p_pmt = NULL;
     const ts_pat_t *p_pat = GetPID(p_sys, 0)->u.p_pat;
@@ -949,14 +941,13 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
         if( !p_sys->b_ignore_time_for_positions &&
              p_pmt &&
-             p_pmt->pcr.i_first > -1 && SETANDVALID(p_pmt->i_last_dts) &&
-             p_pmt->pcr.i_current > -1 )
+             p_pmt->pcr.i_first != VLC_TICK_INVALID &&
+             p_pmt->i_last_dts != VLC_TICK_INVALID &&
+             p_pmt->pcr.i_current != VLC_TICK_INVALID )
         {
-            double i_length = TimeStampWrapAround( p_pmt->pcr.i_first,
-                                                   p_pmt->i_last_dts ) - p_pmt->pcr.i_first;
+            double i_length = p_pmt->i_last_dts - p_pmt->pcr.i_first;
             i_length += p_pmt->pcr.i_pcroffset;
-            double i_pos = TimeStampWrapAround( p_pmt->pcr.i_first,
-                                                p_pmt->pcr.i_current ) - p_pmt->pcr.i_first;
+            double i_pos = p_pmt->pcr.i_current - p_pmt->pcr.i_first;
             if( i_length > 0 )
             {
                 *pf = i_pos / i_length;
@@ -964,10 +955,10 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             }
         }
 
-        if( (i64 = stream_Size( p_sys->stream) ) > 0 )
+        if( vlc_stream_GetSize( p_sys->stream, &u64 ) == VLC_SUCCESS )
         {
             uint64_t offset = vlc_stream_Tell( p_sys->stream );
-            *pf = (double)offset / (double)i64;
+            *pf = (double)offset / (double)u64;
             return VLC_SUCCESS;
         }
         break;
@@ -982,38 +973,37 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         if( p_sys->b_access_control &&
            !p_sys->b_ignore_time_for_positions && b_bool && p_pmt )
         {
-            time_t i_time, i_length;
+            time_t i_time, i_length = 0;
+            vlc_tick_t i_seektime = VLC_TICK_0 + vlc_tick_from_sec( i_length * f );
             if( !EITCurrentEventTime( p_pmt, p_sys, &i_time, &i_length ) &&
-                 i_length > 0 && !SeekToTime( p_demux, p_pmt, (int64_t)(TO_SCALE( vlc_tick_from_sec( i_length * f ))) ) )
+                 i_length > 0 && !SeekToTime( p_demux, p_pmt, i_seektime ) )
             {
                 ReadyQueuesPostSeek( p_demux );
-                es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME,
-                                vlc_tick_from_sec( i_length * f ) );
+                es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME, i_seektime );
                 return VLC_SUCCESS;
             }
         }
 
         if( !p_sys->b_ignore_time_for_positions && b_bool && p_pmt &&
-             p_pmt->pcr.i_first > -1 && SETANDVALID(p_pmt->i_last_dts) &&
-             p_pmt->pcr.i_current > -1 )
+             p_pmt->pcr.i_first != VLC_TICK_INVALID &&
+             p_pmt->i_last_dts != VLC_TICK_INVALID &&
+             p_pmt->pcr.i_current != VLC_TICK_INVALID )
         {
-            stime_t i_length = TimeStampWrapAround( p_pmt->pcr.i_first,
-                                                    p_pmt->i_last_dts ) - p_pmt->pcr.i_first;
-            i64 = p_pmt->pcr.i_first + (int64_t)(i_length * f);
+            vlc_tick_t i_length = p_pmt->i_last_dts - p_pmt->pcr.i_first;
+            i64 = p_pmt->pcr.i_first + i_length * f;
             if( i64 <= p_pmt->i_last_dts )
             {
                 if( !SeekToTime( p_demux, p_pmt, i64 ) )
                 {
                     ReadyQueuesPostSeek( p_demux );
-                    es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME, FROM_SCALE(i64) );
+                    es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME, i64 );
                     return VLC_SUCCESS;
                 }
             }
         }
 
-        i64 = stream_Size( p_sys->stream );
-        if( i64 > 0 &&
-            vlc_stream_Seek( p_sys->stream, (int64_t)(i64 * f) ) == VLC_SUCCESS )
+        if( vlc_stream_GetSize( p_sys->stream, &u64 ) == VLC_SUCCESS &&
+            vlc_stream_Seek( p_sys->stream, (uint64_t)(u64 * f) ) == VLC_SUCCESS )
         {
             ReadyQueuesPostSeek( p_demux );
             return VLC_SUCCESS;
@@ -1024,12 +1014,12 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     {
         vlc_tick_t i_time = va_arg( args, vlc_tick_t );
 
-        if( p_sys->b_canseek && p_pmt && p_pmt->pcr.i_first > -1 &&
-           !SeekToTime( p_demux, p_pmt, p_pmt->pcr.i_first + TO_SCALE(i_time) ) )
+        if( p_sys->b_canseek && p_pmt && p_pmt->pcr.i_first != VLC_TICK_INVALID &&
+           !SeekToTime( p_demux, p_pmt, p_pmt->pcr.i_first + i_time ) )
         {
             ReadyQueuesPostSeek( p_demux );
             es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME,
-                            FROM_SCALE(p_pmt->pcr.i_first) + i_time - VLC_TICK_0 );
+                            p_pmt->pcr.i_first + i_time - VLC_TICK_0 );
             return VLC_SUCCESS;
         }
         break;
@@ -1046,20 +1036,19 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             }
         }
 
-        if( p_pmt && p_pmt->pcr.i_current > -1 && p_pmt->pcr.i_first > -1 )
+        if( p_pmt && p_pmt->pcr.i_current != VLC_TICK_INVALID && p_pmt->pcr.i_first != VLC_TICK_INVALID )
         {
-            stime_t i_pcr = TimeStampWrapAround( p_pmt->pcr.i_first, p_pmt->pcr.i_current );
-            *va_arg( args, vlc_tick_t * ) = FROM_SCALE(i_pcr - p_pmt->pcr.i_first);
+            *va_arg( args, vlc_tick_t * ) = p_pmt->pcr.i_current - p_pmt->pcr.i_first;
             return VLC_SUCCESS;
         }
         break;
     case DEMUX_GET_NORMAL_TIME:
         if ((p_sys->b_access_control && !EITCurrentEventTime( p_pmt, p_sys, NULL, NULL))
-         || (!p_pmt || p_pmt->pcr.i_current == -1 || p_pmt->pcr.i_first == -1))
+         || (!p_pmt || p_pmt->pcr.i_current == VLC_TICK_INVALID || p_pmt->pcr.i_first == VLC_TICK_INVALID))
             return VLC_EGENERIC; /* use VLC_TICK_0 as Normal Play Time*/
 
         /* Use the first pcr of the current program as Normal Play Time */
-        *va_arg( args, vlc_tick_t * ) = FROM_SCALE( p_pmt->pcr.i_first );
+        *va_arg( args, vlc_tick_t * ) = p_pmt->pcr.i_first;
         return VLC_SUCCESS;
 
     case DEMUX_GET_LENGTH:
@@ -1075,19 +1064,19 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
         if( !p_sys->b_ignore_time_for_positions &&
             p_pmt &&
-           ( p_pmt->pcr.i_first > -1 || p_pmt->pcr.i_first_dts != -1 ) &&
-             p_pmt->i_last_dts > 0 )
+           ( p_pmt->pcr.i_first != VLC_TICK_INVALID || p_pmt->pcr.i_first_dts != VLC_TICK_INVALID ) &&
+             p_pmt->i_last_dts != VLC_TICK_INVALID )
         {
-            stime_t i_start = (p_pmt->pcr.i_first > -1) ? p_pmt->pcr.i_first :
-                              p_pmt->pcr.i_first_dts;
-            stime_t i_last = TimeStampWrapAround( p_pmt->pcr.i_first, p_pmt->i_last_dts );
+            vlc_tick_t i_start = (p_pmt->pcr.i_first != VLC_TICK_INVALID) ? p_pmt->pcr.i_first :
+                                  p_pmt->pcr.i_first_dts;
+            vlc_tick_t i_last = p_pmt->i_last_dts;
             i_last += p_pmt->pcr.i_pcroffset;
             if( i_start > i_last )
             {
                 msg_Warn( p_demux, "Can't get stream duration. Edited ?" );
                 return VLC_EGENERIC;
             }
-            *va_arg( args, vlc_tick_t * ) = FROM_SCALE(i_last - i_start);
+            *va_arg( args, vlc_tick_t * ) = i_last - i_start;
             return VLC_SUCCESS;
         }
         break;
@@ -1361,7 +1350,7 @@ static block_t *J2K_Parse( demux_t *p_demux, block_t *p_block, bool b_interlaced
 
     uint16_t i_den = GetWBE( &p_buf[8] );
     uint16_t i_num = GetWBE( &p_buf[10] );
-    if( i_den == 0 )
+    if( i_den == 0 || i_num == 0 )
         goto invalid;
     p_block->i_length = vlc_tick_from_samples( i_den, i_num );
 
@@ -1386,7 +1375,7 @@ static vlc_tick_t GetTimeForUntimed( const ts_pmt_t *p_pmt )
         if( (p_pid->i_flags & FLAG_FILTERED) && SEEN(p_pid) &&
              p_pid->type == TYPE_STREAM &&
              p_pid->u.p_stream->p_es &&
-             SETANDVALID(p_pid->u.p_stream->i_last_dts) )
+             p_pid->u.p_stream->i_last_dts != VLC_TICK_INVALID )
         {
             const ts_es_t *p_es = p_pid->u.p_stream->p_es;
             if( p_es->fmt.i_cat == VIDEO_ES || p_es->fmt.i_cat == AUDIO_ES )
@@ -1425,24 +1414,19 @@ static block_t * ConvertPESBlock( demux_t *p_demux, ts_es_t *p_es,
     {
         const ts_pmt_t *p_pmt = p_es->p_program;
         if( p_block->i_pts != VLC_TICK_INVALID &&
-            p_pmt->pcr.i_current > -1 )
+            p_pmt->pcr.i_current != VLC_TICK_INVALID )
         {
             /* Teletext can have totally offset timestamps... RAI1, German */
-            vlc_tick_t i_pcr = FROM_SCALE(TimeStampWrapAround( p_pmt->pcr.i_first,
-                                                               p_pmt->pcr.i_current ));
-            if( i_pcr < p_block->i_pts || i_pcr - p_block->i_pts > CLOCK_FREQ )
+            if( p_pmt->pcr.i_current < p_block->i_pts || p_pmt->pcr.i_current - p_block->i_pts > CLOCK_FREQ )
                 p_block->i_dts = p_block->i_pts = VLC_TICK_INVALID;
         }
         if( p_block->i_pts == VLC_TICK_INVALID )
         {
             /* Teletext may have missing PTS (ETSI EN 300 472 Annexe A)
              * In this case use the last PCR + 40ms */
-            stime_t i_ts = GetTimeForUntimed( p_es->p_program );
-            if( SETANDVALID(i_ts) )
-            {
-                i_ts = TimeStampWrapAround( p_pmt->pcr.i_first, i_ts );
-                p_block->i_dts = p_block->i_pts = FROM_SCALE(i_ts) + VLC_TICK_FROM_MS(40);
-            }
+            vlc_tick_t i_ts = GetTimeForUntimed( p_es->p_program );
+            if( i_ts != VLC_TICK_INVALID )
+                p_block->i_dts = p_block->i_pts = i_ts + VLC_TICK_FROM_MS(40);
         }
     }
     else if( p_es->fmt.i_codec == VLC_CODEC_ARIB_A ||
@@ -1553,16 +1537,14 @@ static void SendDataChain( demux_t *p_demux, ts_es_t *p_es, block_t *p_chain )
  * gathering stuff
  ****************************************************************************/
 static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
-                               uint32_t i_flags, stime_t i_append_pcr )
+                               uint32_t i_flags, ts_90khz_t i_append_pcr )
 {
     uint8_t header[34];
     unsigned i_pes_size = 0;
     unsigned i_skip = 0;
-    stime_t i_dts = -1;
-    stime_t i_pts = -1;
-    vlc_tick_t i_length = 0;
-    uint8_t i_stream_id;
-    bool b_pes_scrambling = false;
+    ts_90khz_t i_length = 0;
+    vlc_tick_t i_dts = VLC_TICK_INVALID;
+    vlc_tick_t i_pts = VLC_TICK_INVALID;
     const es_mpeg4_descriptor_t *p_mpeg4desc = NULL;
     demux_sys_t *p_sys = p_demux->p_sys;
 
@@ -1591,20 +1573,23 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
 
     ts_es_t *p_es = pid->u.p_stream->p_es;
 
-    if( ParsePESHeader( VLC_OBJECT(p_demux), (uint8_t*)&header, i_max, &i_skip,
-                        &i_dts, &i_pts, &i_stream_id, &b_pes_scrambling ) == VLC_EGENERIC )
+    ts_pes_header_t pesh;
+    ts_pes_header_init( &pesh );
+
+    if( ParsePESHeader( p_demux->obj.logger, (uint8_t*)&header, i_max, &pesh ) == VLC_EGENERIC )
     {
         block_ChainRelease( p_pes );
         return;
     }
     else
     {
-        if( i_pts != -1 && p_es->p_program )
-            i_pts = TimeStampWrapAround( p_es->p_program->pcr.i_first, i_pts );
-        if( i_dts != -1 && p_es->p_program )
-            i_dts = TimeStampWrapAround( p_es->p_program->pcr.i_first, i_dts );
-        if( b_pes_scrambling )
+        if( pesh.i_pts != TS_90KHZ_INVALID && p_es->p_program )
+            i_pts = TimeStampWrapAround( p_es->p_program->pcr.i_first, FROM_SCALE(pesh.i_pts) );
+        if( pesh.i_dts != TS_90KHZ_INVALID && p_es->p_program )
+            i_dts = TimeStampWrapAround( p_es->p_program->pcr.i_first, FROM_SCALE(pesh.i_dts) );
+        if( pesh.b_scrambling )
             p_pes->i_flags |= BLOCK_FLAG_SCRAMBLED;
+        i_skip = pesh.i_size;
     }
 
     if( p_es->i_sl_es_id )
@@ -1661,10 +1646,10 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
     }
 
     /* ISO/IEC 13818-1 2.7.5: if no pts and no dts, then dts == pts */
-    if( i_pts >= 0 && i_dts < 0 )
+    if( i_pts != VLC_TICK_INVALID && i_dts == VLC_TICK_INVALID )
         i_dts = i_pts;
 
-    if( i_dts >= 0 )
+    if( i_dts != VLC_TICK_INVALID )
         pid->u.p_stream->i_last_dts = i_dts;
 
     if( p_pes )
@@ -1676,11 +1661,11 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
             return;
         }
 
-        if( i_dts >= 0 )
-            p_pes->i_dts = FROM_SCALE(i_dts);
+        if( i_dts != VLC_TICK_INVALID )
+            p_pes->i_dts = i_dts;
 
-        if( i_pts >= 0 )
-            p_pes->i_pts = FROM_SCALE(i_pts);
+        if( i_pts != VLC_TICK_INVALID )
+            p_pes->i_pts = i_pts;
 
         p_pes->i_length = FROM_SCALE_NZ(i_length);
 
@@ -1700,7 +1685,7 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
             if( !p_pmt->pcr.b_fix_done ) /* Not seen yet */
                 PCRFixHandle( p_demux, p_pmt, p_block );
 
-            if( p_es->id && (p_pmt->pcr.i_current > -1 || p_pmt->pcr.b_disable) )
+            if( p_es->id && (p_pmt->pcr.i_current != VLC_TICK_INVALID || p_pmt->pcr.b_disable) )
             {
                 if( pid->u.p_stream->prepcr.p_head )
                 {
@@ -1718,27 +1703,24 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
                 if ( p_pmt->pcr.b_disable && p_block->i_dts != VLC_TICK_INVALID &&
                      ( p_pmt->i_pid_pcr == pid->i_pid || p_pmt->i_pid_pcr == 0x1FFF ) )
                 {
-                    stime_t i_pcr = ( p_block->i_dts > p_sys->i_generated_pcr_dpb_offset )
-                                  ? TO_SCALE(p_block->i_dts - p_sys->i_generated_pcr_dpb_offset)
-                                  : TO_SCALE(p_block->i_dts);
+                    vlc_tick_t i_pcr = p_block->i_dts;
+                    if( i_pcr > VLC_TICK_0 + p_sys->i_generated_pcr_dpb_offset )
+                        i_pcr -= p_sys->i_generated_pcr_dpb_offset;
                     ProgramSetPCR( p_demux, p_pmt, i_pcr );
                 }
 
                 /* Compute PCR/DTS offset if any */
-                stime_t i_pcrref = SETANDVALID(i_append_pcr) ? i_append_pcr : p_pmt->pcr.i_first;
+                vlc_tick_t i_pcrref = (i_append_pcr != TS_90KHZ_INVALID) ? FROM_SCALE(i_append_pcr) : p_pmt->pcr.i_first;
                 if( p_pmt->pcr.i_pcroffset == -1 && p_block->i_dts != VLC_TICK_INVALID &&
-                    SETANDVALID(i_pcrref) &&
-                   (p_es->fmt.i_cat == VIDEO_ES || p_es->fmt.i_cat == AUDIO_ES) )
+                    i_pcrref != VLC_TICK_INVALID &&
+                    (p_es->fmt.i_cat == VIDEO_ES || p_es->fmt.i_cat == AUDIO_ES) )
                 {
-                    stime_t i_dts27 = TO_SCALE(p_block->i_dts);
-                    i_dts27 = TimeStampWrapAround( i_pcrref, i_dts27 );
-                    i_pcrref = TimeStampWrapAround( p_pmt->pcr.i_first, i_pcrref );
-                    if( i_dts27 + (CLOCK_FREQ/90000) < i_pcrref )
+                    if( p_block->i_dts + FROM_SCALE_NZ(CLOCK_FREQ/90000) < i_pcrref )
                     {
-                        p_pmt->pcr.i_pcroffset = i_pcrref - i_dts27 + TO_SCALE_NZ(VLC_TICK_FROM_MS(80));
+                        p_pmt->pcr.i_pcroffset = i_pcrref - p_block->i_dts + VLC_TICK_FROM_MS(80);
                         msg_Warn( p_demux, "Broken stream: pid %d sends packets with dts %"PRId64
                                            "us later than pcr, applying delay",
-                                  pid->i_pid, FROM_SCALE_NZ(i_pcrref - i_dts27) );
+                                  pid->i_pid, i_pcrref - p_block->i_dts );
                     }
                     else p_pmt->pcr.i_pcroffset = 0;
                 }
@@ -1746,9 +1728,9 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
                 if( p_pmt->pcr.i_pcroffset != -1 )
                 {
                     if( p_block->i_dts != VLC_TICK_INVALID )
-                        p_block->i_dts += FROM_SCALE_NZ(p_pmt->pcr.i_pcroffset);
+                        p_block->i_dts += p_pmt->pcr.i_pcroffset;
                     if( p_block->i_pts != VLC_TICK_INVALID )
-                        p_block->i_pts += FROM_SCALE_NZ(p_pmt->pcr.i_pcroffset);
+                        p_block->i_pts += p_pmt->pcr.i_pcroffset;
                 }
 
                 /*** From here, block can become a chain again though conversion below ***/
@@ -1757,12 +1739,12 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
                 {
                     if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
                         ts_stream_processor_Reset( pid->u.p_stream->p_proc );
-                    p_block = ts_stream_processor_Push( pid->u.p_stream->p_proc, i_stream_id, p_block );
+                    p_block = ts_stream_processor_Push( pid->u.p_stream->p_proc, pesh.i_stream_id, p_block );
                 }
                 else
                 /* Some codecs might need xform or AU splitting */
                 {
-                    p_block = ConvertPESBlock( p_demux, p_es, i_pes_size, i_stream_id, p_block );
+                    p_block = ConvertPESBlock( p_demux, p_es, i_pes_size, pesh.i_stream_id, p_block );
                 }
 
                 SendDataChain( p_demux, p_es, p_block );
@@ -1776,14 +1758,14 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
                 {
                     if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
                         ts_stream_processor_Reset( pid->u.p_stream->p_proc );
-                    p_block = ts_stream_processor_Push( pid->u.p_stream->p_proc, i_stream_id, p_block );
+                    p_block = ts_stream_processor_Push( pid->u.p_stream->p_proc, pesh.i_stream_id, p_block );
                 }
 
                 if( p_block )
                     block_ChainLastAppend( &pid->u.p_stream->prepcr.pp_last, p_block );
 
                 /* PCR Seen and no es->id, cleanup current and prepcr blocks */
-                if( p_pmt->pcr.i_current > -1)
+                if( p_pmt->pcr.i_current != VLC_TICK_INVALID )
                 {
                     block_ChainRelease( pid->u.p_stream->prepcr.p_head );
                     pid->u.p_stream->prepcr.p_head = NULL;
@@ -1799,23 +1781,74 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
 }
 
 static void PESDataChainHandle( vlc_object_t *p_obj, void *priv, block_t *p_data,
-                                uint32_t i_flags, stime_t i_appendpcr )
+                                uint32_t i_flags, ts_90khz_t i_appendpcr )
 {
     ParsePESDataChain( (demux_t *)p_obj, (ts_pid_t *) priv, p_data, i_flags, i_appendpcr );
+}
+
+static bool CheckAndResync( demux_t *p_demux )
+{
+    demux_sys_t *p_sys = p_demux->p_sys;
+
+    const uint8_t *p_peek;
+    if( vlc_stream_Peek( p_sys->stream, &p_peek, 1 ) != 1 )
+        return true;
+
+    /* Check sync byte and re-sync if needed */
+    if( p_peek[0] == 0x47 )
+        return true;
+
+    msg_Warn( p_demux, "lost synchro at %" PRIu64, vlc_stream_Tell( p_sys->stream ) );
+
+    for( ;; )
+    {
+        ssize_t i_peek = 0;
+        unsigned i_skip = 0;
+
+        i_peek = vlc_stream_Peek( p_sys->stream, &p_peek,
+                                  p_sys->i_packet_size * 10 );
+        if( i_peek < 0 || (size_t)i_peek < p_sys->i_packet_size + 1 )
+        {
+            msg_Dbg( p_demux, "eof ?" );
+            return false;
+        }
+
+        while( i_skip < i_peek - p_sys->i_packet_size )
+        {
+            if( p_peek[i_skip + p_sys->i_packet_header_size] == 0x47 &&
+                p_peek[i_skip + p_sys->i_packet_header_size + p_sys->i_packet_size] == 0x47 )
+                break;
+            i_skip++;
+        }
+        msg_Dbg( p_demux, "skipping %d bytes of garbage at %"PRIu64,
+                 i_skip, vlc_stream_Tell( p_sys->stream ) );
+        if (vlc_stream_Read( p_sys->stream, NULL, i_skip ) != i_skip)
+            return false;
+
+        if( i_skip < i_peek - p_sys->i_packet_size )
+            break;
+    }
+    msg_Dbg( p_demux, "resynced at %" PRIu64, vlc_stream_Tell( p_sys->stream ) );
+
+    return true;
 }
 
 static block_t* ReadTSPacket( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
 
+    if( !CheckAndResync( p_demux) )
+        return NULL;
+
     block_t     *p_pkt;
 
     /* Get a new TS packet */
     if( !( p_pkt = vlc_stream_Block( p_sys->stream, p_sys->i_packet_size ) ) )
     {
-        int64_t size = stream_Size( p_sys->stream );
-        if( size >= 0 && (uint64_t)size == vlc_stream_Tell( p_sys->stream ) )
-            msg_Dbg( p_demux, "EOF at %"PRIu64, vlc_stream_Tell( p_sys->stream ) );
+        uint64_t size;
+        if( vlc_stream_GetSize( p_sys->stream, &size ) == VLC_SUCCESS &&
+            size == vlc_stream_Tell( p_sys->stream ) )
+            msg_Dbg( p_demux, "EOF at %"PRIu64, size );
         else
             msg_Dbg( p_demux, "Can't read TS packet at %"PRIu64, vlc_stream_Tell(p_sys->stream) );
         return NULL;
@@ -1834,78 +1867,7 @@ static block_t* ReadTSPacket( demux_t *p_demux )
     p_pkt->p_buffer += p_sys->i_packet_header_size;
     p_pkt->i_buffer -= p_sys->i_packet_header_size;
 
-    /* Check sync byte and re-sync if needed */
-    if( p_pkt->p_buffer[0] != 0x47 )
-    {
-        msg_Warn( p_demux, "lost synchro" );
-        block_Release( p_pkt );
-        for( ;; )
-        {
-            const uint8_t *p_peek;
-            int i_peek = 0;
-            unsigned i_skip = 0;
-
-            i_peek = vlc_stream_Peek( p_sys->stream, &p_peek,
-                    p_sys->i_packet_size * 10 );
-            if( i_peek < 0 || (unsigned)i_peek < p_sys->i_packet_size + 1 )
-            {
-                msg_Dbg( p_demux, "eof ?" );
-                return NULL;
-            }
-
-            while( i_skip < i_peek - p_sys->i_packet_size )
-            {
-                if( p_peek[i_skip + p_sys->i_packet_header_size] == 0x47 &&
-                        p_peek[i_skip + p_sys->i_packet_header_size + p_sys->i_packet_size] == 0x47 )
-                {
-                    break;
-                }
-                i_skip++;
-            }
-            msg_Dbg( p_demux, "skipping %d bytes of garbage at %"PRIu64,
-                     i_skip, vlc_stream_Tell( p_sys->stream ) );
-            if (vlc_stream_Read( p_sys->stream, NULL, i_skip ) != i_skip)
-                return NULL;
-
-            if( i_skip < i_peek - p_sys->i_packet_size )
-            {
-                break;
-            }
-        }
-        msg_Dbg( p_demux, "resynced at %" PRIu64, vlc_stream_Tell( p_sys->stream ) );
-        if( !( p_pkt = vlc_stream_Block( p_sys->stream, p_sys->i_packet_size ) ) )
-        {
-            msg_Dbg( p_demux, "eof ?" );
-            return NULL;
-        }
-    }
     return p_pkt;
-}
-
-static stime_t GetPCR( const block_t *p_pkt )
-{
-    const uint8_t *p = p_pkt->p_buffer;
-
-    stime_t i_pcr = -1;
-
-    if(unlikely(p_pkt->i_buffer < 12))
-        return i_pcr;
-
-    const uint8_t i_adaption = p[3] & 0x30;
-
-    if( ( ( i_adaption == 0x30 && p[4] <= 182 ) ||   /* adaptation 0b11 */
-          ( i_adaption == 0x20 && p[4] == 183 ) ) && /* adaptation 0b10 */
-        ( p[4] >= 7 )  &&
-        ( p[5] & 0x10 ) ) /* PCR carry flag */
-    {
-        /* PCR is 33 bits */
-        i_pcr = ( (stime_t)p[6] << 25 ) |
-                ( (stime_t)p[7] << 17 ) |
-                ( (stime_t)p[8] << 9 ) |
-                ( (stime_t)p[9] << 1 ) |
-                ( (stime_t)p[10] >> 7 );
-    }
-    return i_pcr;
 }
 
 static inline void UpdateESScrambledState( es_out_t *out, const ts_es_t *p_es, bool b_scrambled )
@@ -1986,7 +1948,7 @@ static void ReadyQueuesPostSeek( demux_t *p_demux )
             for( ts_es_t *p_es = p_pes->p_es; p_es; p_es = p_es->p_next )
                 p_es->i_next_block_flags |= BLOCK_FLAG_DISCONTINUITY;
 
-            pid->u.p_stream->i_last_dts = -1;
+            pid->u.p_stream->i_last_dts = VLC_TICK_INVALID;
 
             if( pid->u.p_stream->prepcr.p_head )
             {
@@ -2000,19 +1962,22 @@ static void ReadyQueuesPostSeek( demux_t *p_demux )
 
             FlushESBuffer( pid->u.p_stream );
         }
-        p_pmt->pcr.i_current = -1;
+        p_pmt->pcr.i_current = VLC_TICK_INVALID;
     }
 }
 
-static int SeekToTime( demux_t *p_demux, const ts_pmt_t *p_pmt, stime_t i_scaledtime )
+static int SeekToTime( demux_t *p_demux, const ts_pmt_t *p_pmt, vlc_tick_t i_seektime )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
 
     /* Deal with common but worst binary search case */
-    if( p_pmt->pcr.i_first == i_scaledtime && p_sys->b_canseek )
+    if( p_pmt->pcr.i_first == i_seektime && p_sys->b_canseek )
         return vlc_stream_Seek( p_sys->stream, 0 );
 
-    const int64_t i_stream_size = stream_Size( p_sys->stream );
+    uint64_t i_stream_size;
+    if( vlc_stream_GetSize( p_sys->stream, &i_stream_size ) != VLC_SUCCESS )
+      return VLC_EGENERIC;
+
     if( !p_sys->b_canfastseek || i_stream_size < p_sys->i_packet_size )
         return VLC_EGENERIC;
 
@@ -2038,7 +2003,7 @@ static int SeekToTime( demux_t *p_demux, const ts_pmt_t *p_pmt, stime_t i_scaled
         uint64_t i_pos = i_splitpos;
         while( i_pos < i_tail_pos )
         {
-            stime_t i_pcr = -1;
+            ts_90khz_t i_pktpcr = TS_90KHZ_INVALID;
             block_t *p_pkt = ReadTSPacket( p_demux );
             if( !p_pkt )
             {
@@ -2052,43 +2017,34 @@ static int SeekToTime( demux_t *p_demux, const ts_pmt_t *p_pmt, stime_t i_scaled
             ts_pid_t *p_pid = GetPID(p_sys, i_pid);
             if( i_pid != 0x1FFF )
             {
-                unsigned i_skip = 4;
-                if ( p_pkt->p_buffer[3] & 0x20 ) // adaptation field
-                {
-                    if( p_pkt->i_buffer >= 4 + 2 + 5 )
-                    {
-                        if( p_pmt->i_pid_pcr == i_pid )
-                            i_pcr = GetPCR( p_pkt );
-                        i_skip += 1 + __MIN(p_pkt->p_buffer[4], 182);
-                    }
-                }
+                if( p_pmt->i_pid_pcr == i_pid )
+                    i_pktpcr = GetPCR( p_pkt );
 
-                if( i_pcr == -1 && p_pid->type == TYPE_STREAM &&
+                unsigned i_skip = PKTHeaderAndAFSize( p_pkt );
+                if( i_pktpcr == TS_90KHZ_INVALID && p_pid->type == TYPE_STREAM &&
                     ts_stream_Find_es( p_pid->u.p_stream, p_pmt ) &&
                    (p_pkt->p_buffer[1] & 0xC0) == 0x40 && /* Payload start but not corrupt */
                    (p_pkt->p_buffer[3] & 0xD0) == 0x10    /* Has payload but is not encrypted */
                 )
                 {
-                    stime_t i_dts = -1;
-                    stime_t i_pts = -1;
-                    uint8_t i_stream_id;
-                    if ( VLC_SUCCESS == ParsePESHeader( VLC_OBJECT(p_demux), &p_pkt->p_buffer[i_skip],
-                                                        p_pkt->i_buffer - i_skip, &i_skip,
-                                                        &i_dts, &i_pts, &i_stream_id, NULL ) )
+                    ts_pes_header_t pesh;
+                    ts_pes_header_init( &pesh );
+                    if ( VLC_SUCCESS == ParsePESHeader( NULL, &p_pkt->p_buffer[i_skip],
+                                                        p_pkt->i_buffer - i_skip, &pesh ) )
                     {
-                        if( i_dts > -1 )
-                            i_pcr = i_dts;
+                        if( pesh.i_dts != TS_90KHZ_INVALID )
+                            i_pktpcr = pesh.i_dts;
                     }
                 }
             }
             block_Release( p_pkt );
 
-            if( i_pcr != -1 )
+            if( i_pktpcr != TS_90KHZ_INVALID )
             {
-                stime_t i_diff = i_scaledtime - TimeStampWrapAround( p_pmt->pcr.i_first, i_pcr );
+                vlc_tick_t i_diff = i_seektime - TimeStampWrapAround( p_pmt->pcr.i_first, FROM_SCALE(i_pktpcr) );
                 if ( i_diff < 0 )
                     i_tail_pos = (i_splitpos >= p_sys->i_packet_size) ? i_splitpos - p_sys->i_packet_size : 0;
-                else if( i_diff < TO_SCALE(VLC_TICK_0 + VLC_TICK_FROM_MS(500)) )
+                else if( i_diff < VLC_TICK_FROM_MS(500) )
                     b_found = true;
                 else
                     i_head_pos = i_pos;
@@ -2118,7 +2074,7 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
 
     for( ;; )
     {
-        stime_t i_pcr = -1;
+        ts_90khz_t i_pcr = TS_90KHZ_INVALID;
 
         if( i_count++ > PROBE_CHUNK_COUNT || !( p_pkt = ReadTSPacket( p_demux ) ) )
         {
@@ -2140,16 +2096,13 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
         if( i_pid != 0x1FFF && (p_pkt->p_buffer[1] & 0x80) == 0 ) /* not corrupt */
         {
             bool b_pcrresult = true;
-            bool b_adaptfield = p_pkt->p_buffer[3] & 0x20;
-
-            if( b_adaptfield && p_pkt->i_buffer >= 4 + 2 + 5 )
-                i_pcr = GetPCR( p_pkt );
+            i_pcr = GetPCR( p_pkt );
 
             /* Designated PCR pid will be valid, don't repick (on the fly probing) */
-            if( i_pcr != -1 && !p_pid->probed.i_pcr_count )
+            if( i_pcr != TS_90KHZ_INVALID && !p_pid->probed.i_pcr_count )
                 p_pid->probed.i_pcr_count++;
 
-            if( i_pcr == -1 &&
+            if( i_pcr == TS_90KHZ_INVALID &&
                 (p_pkt->p_buffer[1] & 0xC0) == 0x40 && /* payload start */
                 (p_pkt->p_buffer[3] & 0xD0) == 0x10 && /* Has payload but is not encrypted */
                 p_pid->type == TYPE_STREAM &&
@@ -2157,25 +2110,20 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
               )
             {
                 b_pcrresult = false;
-                stime_t i_dts = -1;
-                stime_t i_pts = -1;
-                uint8_t i_stream_id;
-                unsigned i_skip = 4;
-                if ( b_adaptfield ) // adaptation field
-                    i_skip += 1 + __MIN(p_pkt->p_buffer[4], 182);
-
-                if ( VLC_SUCCESS == ParsePESHeader( VLC_OBJECT(p_demux), &p_pkt->p_buffer[i_skip],
-                                                    p_pkt->i_buffer - i_skip, &i_skip,
-                                                    &i_dts, &i_pts, &i_stream_id, NULL ) )
+                unsigned i_skip = PKTHeaderAndAFSize( p_pkt );
+                ts_pes_header_t pesh;
+                ts_pes_header_init( &pesh );
+                if ( VLC_SUCCESS == ParsePESHeader( NULL, &p_pkt->p_buffer[i_skip],
+                                                    p_pkt->i_buffer - i_skip, &pesh ) )
                 {
-                    if( i_dts != -1 )
-                        i_pcr = i_dts;
-                    else if( i_pts != -1 )
-                        i_pcr = i_pts;
+                    if( pesh.i_dts != TS_90KHZ_INVALID )
+                        i_pcr = pesh.i_dts;
+                    else if( pesh.i_pts != TS_90KHZ_INVALID )
+                        i_pcr = pesh.i_pts;
                 }
             }
 
-            if( i_pcr != -1 )
+            if( i_pcr != TS_90KHZ_INVALID )
             {
                 ts_pat_t *p_pat = GetPID(p_sys, 0)->u.p_pat;
                 for( int i=0; i<p_pat->programs.i_size; i++ )
@@ -2188,17 +2136,17 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
                     {
                         if( b_end )
                         {
-                            p_pmt->i_last_dts = i_pcr;
+                            p_pmt->i_last_dts = FROM_SCALE(i_pcr);
                             p_pmt->i_last_dts_byte = vlc_stream_Tell( p_sys->stream );
                         }
                         /* Start, only keep first */
-                        else if( b_pcrresult && p_pmt->pcr.i_first == -1 )
+                        else if( b_pcrresult && p_pmt->pcr.i_first == VLC_TICK_INVALID )
                         {
-                            p_pmt->pcr.i_first = i_pcr;
+                            p_pmt->pcr.i_first = FROM_SCALE(i_pcr);
                         }
-                        else if( p_pmt->pcr.i_first_dts == -1 )
+                        else if( p_pmt->pcr.i_first_dts == VLC_TICK_INVALID )
                         {
-                            p_pmt->pcr.i_first_dts = i_pcr;
+                            p_pmt->pcr.i_first_dts = FROM_SCALE(i_pcr);
                         }
 
                         if( i_program == 0 || i_program == p_pmt->i_number )
@@ -2218,16 +2166,22 @@ int ProbeStart( demux_t *p_demux, int i_program )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     const uint64_t i_initial_pos = vlc_stream_Tell( p_sys->stream );
-    int64_t i_stream_size = stream_Size( p_sys->stream );
+    uint64_t i_stream_size;
+    if( vlc_stream_GetSize( p_sys->stream, &i_stream_size ) != VLC_SUCCESS )
+      return VLC_EGENERIC;
 
-    int i_probe_count = 0;
-    int64_t i_pos;
+    if( i_stream_size < p_sys->i_packet_size )
+      return VLC_EGENERIC;
+
+    unsigned i_probe_count = 0;
+    uint64_t i_pos;
     bool b_found = false;
 
     do
     {
-        i_pos = (int64_t)p_sys->i_packet_size * i_probe_count;
-        i_pos = __MIN( i_pos, i_stream_size );
+        i_pos = p_sys->i_packet_size * i_probe_count;
+        if( i_pos > i_stream_size - p_sys->i_packet_size )
+          break;
 
         if( vlc_stream_Seek( p_sys->stream, i_pos ) )
             return VLC_EGENERIC;
@@ -2251,16 +2205,26 @@ int ProbeEnd( demux_t *p_demux, int i_program )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     const uint64_t i_initial_pos = vlc_stream_Tell( p_sys->stream );
-    int64_t i_stream_size = stream_Size( p_sys->stream );
+    uint64_t i_stream_size;
+    if( vlc_stream_GetSize( p_sys->stream, &i_stream_size ) != VLC_SUCCESS )
+      return VLC_EGENERIC;
 
-    int i_probe_count = PROBE_CHUNK_COUNT;
-    int64_t i_pos;
+    unsigned i_probe_count = PROBE_CHUNK_COUNT;
+    uint64_t i_pos;
     bool b_found = false;
+    const uint64_t i_sync_align_offset = i_initial_pos % p_sys->i_packet_size;
 
     do
     {
-        i_pos = i_stream_size - (p_sys->i_packet_size * i_probe_count);
-        i_pos = __MAX( i_pos, 0 );
+        i_pos = p_sys->i_packet_size * i_probe_count;
+        if( i_stream_size > i_pos )
+          i_pos = i_stream_size - i_pos;
+        else
+          i_pos = 0;
+
+        /* Avoid resyncing, as the starting point should be packet aligned */
+        if( i_pos % p_sys->i_packet_size != i_sync_align_offset )
+            i_pos = i_pos - (i_pos % p_sys->i_packet_size) + i_sync_align_offset;
 
         if( vlc_stream_Seek( p_sys->stream, i_pos ) )
             return VLC_EGENERIC;
@@ -2280,13 +2244,13 @@ int ProbeEnd( demux_t *p_demux, int i_program )
     return (b_found) ? VLC_SUCCESS : VLC_EGENERIC;
 }
 
-static void ProgramSetPCR( demux_t *p_demux, ts_pmt_t *p_pmt, stime_t i_pcr )
+static void ProgramSetPCR( demux_t *p_demux, ts_pmt_t *p_pmt, vlc_tick_t i_pcr )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
 
     /* Check if we have enqueued blocks waiting the/before the
        PCR barrier, and then adapt pcr so they have valid PCR when dequeuing */
-    if( p_pmt->pcr.i_current == -1 && p_pmt->pcr.b_fix_done )
+    if( p_pmt->pcr.i_current == VLC_TICK_INVALID && p_pmt->pcr.b_fix_done )
     {
         vlc_tick_t i_mindts = VLC_TICK_INVALID;
 
@@ -2312,27 +2276,31 @@ static void ProgramSetPCR( demux_t *p_demux, ts_pmt_t *p_pmt, stime_t i_pcr )
             {
                 msg_Dbg( p_demux, "Program %d PCR prequeue fixup %"PRId64"->%"PRId64,
                          p_pmt->i_number, TO_SCALE(i_mindts), i_pcr );
-                i_pcr = TO_SCALE(i_mindts);
+                i_pcr = i_mindts;
             }
             else i_pcr = p_pmt->pcr.i_first;
         }
     }
 
     p_pmt->pcr.i_current = i_pcr;
-    if( p_pmt->pcr.i_first == -1 )
+
+    if( p_pmt->pcr.i_first == VLC_TICK_INVALID )
     {
         p_pmt->pcr.i_first = i_pcr; // now seen
     }
 
     if ( p_sys->i_pmt_es )
     {
-        es_out_Control( p_demux->out, ES_OUT_SET_GROUP_PCR, p_pmt->i_number, FROM_SCALE(i_pcr) );
+        es_out_Control( p_demux->out, ES_OUT_SET_GROUP_PCR, p_pmt->i_number, i_pcr );
         /* growing files/named fifo handling */
         if( p_sys->b_access_control == false &&
             vlc_stream_Tell( p_sys->stream ) > p_pmt->i_last_dts_byte )
         {
             if( p_pmt->i_last_dts_byte == 0 ) /* first run */
-                p_pmt->i_last_dts_byte = stream_Size( p_sys->stream );
+            {
+                if( vlc_stream_GetSize( p_sys->stream, &p_pmt->i_last_dts_byte ) != VLC_SUCCESS )
+                    msg_Dbg( p_demux, "Can't get stream size" );
+            }
             else
             {
                 p_pmt->i_last_dts = i_pcr;
@@ -2364,7 +2332,7 @@ static int IsVideoEnd( ts_pid_t *p_pid )
              ( tail[ i_tail - 1 ] == 0xb7 ||  tail[ i_tail - 1 ] == 0x0a ) );
 }
 
-static void PCRCheckDTS( demux_t *p_demux, ts_pmt_t *p_pmt, stime_t i_pcr)
+static void PCRCheckDTS( demux_t *p_demux, ts_pmt_t *p_pmt, vlc_tick_t i_pcr)
 {
     for( int i=0; i<p_pmt->e_streams.i_size; i++ )
     {
@@ -2390,37 +2358,34 @@ static void PCRCheckDTS( demux_t *p_demux, ts_pmt_t *p_pmt, stime_t i_pcr)
         uint8_t header[34];
         const int i_max = block_ChainExtract( p_pes->gather.p_data, header, 34 );
 
-        if( i_max < 6 || header[0] != 0 || header[1] != 0 || header[2] != 1 )
+        ts_pes_header_t pesh;
+        ts_pes_header_init( &pesh );
+
+        if( ParsePESHeader( NULL, (uint8_t*)&header, i_max, &pesh ) == VLC_EGENERIC )
             continue;
 
-        unsigned i_skip = 0;
-        stime_t i_dts = -1;
-        stime_t i_pts = -1;
-        uint8_t i_stream_id;
+        vlc_tick_t i_dts = VLC_TICK_INVALID;
+        vlc_tick_t i_pts = VLC_TICK_INVALID;
 
-        if( ParsePESHeader( VLC_OBJECT(p_demux), (uint8_t*)&header, i_max, &i_skip,
-                            &i_dts, &i_pts, &i_stream_id, NULL ) == VLC_EGENERIC )
-            continue;
+        if( pesh.i_dts != TS_90KHZ_INVALID )
+            i_dts = TimeStampWrapAround( i_pcr, FROM_SCALE(pesh.i_dts) );
+        if( pesh.i_pts != TS_90KHZ_INVALID )
+            i_pts = TimeStampWrapAround( i_pcr, FROM_SCALE(pesh.i_pts) );
 
         if (p_pmt->pcr.i_pcroffset > 0) {
-            if( i_dts != -1 )
+            if( i_dts != VLC_TICK_INVALID )
                 i_dts += p_pmt->pcr.i_pcroffset;
-            if( i_pts != -1 )
+            if( i_pts != VLC_TICK_INVALID )
                 i_pts += p_pmt->pcr.i_pcroffset;
         }
 
-        if( i_dts != -1 )
-            i_dts = TimeStampWrapAround( i_pcr, i_dts );
-        if( i_pts != -1 )
-            i_pts = TimeStampWrapAround( i_pcr, i_pts );
-
-        if(( i_dts != -1 && i_dts <= i_pcr ) ||
-           ( i_pts != -1 && i_pts <= i_pcr ))
+        if(( i_dts != VLC_TICK_INVALID && i_dts <= i_pcr ) ||
+           ( i_pts != VLC_TICK_INVALID && i_pts <= i_pcr ))
         {
             if( IsVideoEnd( p_pid ) )
             {
                 msg_Warn( p_demux, "send queued data for pid %d: TS %"PRId64" <= PCR %"PRId64"\n",
-                          p_pid->i_pid, i_dts != -1 ? i_dts : i_pts, i_pcr);
+                          p_pid->i_pid, i_dts != VLC_TICK_INVALID ? i_dts : i_pts, i_pcr);
                 ts_pes_parse_callback cb = { .p_obj = VLC_OBJECT(p_demux),
                                              .priv = p_pid,
                                              .pf_parse = PESDataChainHandle };
@@ -2430,7 +2395,7 @@ static void PCRCheckDTS( demux_t *p_demux, ts_pmt_t *p_pmt, stime_t i_pcr)
     }
 }
 
-static void PCRHandle( demux_t *p_demux, ts_pid_t *pid, stime_t i_pcr )
+static void PCRHandle( demux_t *p_demux, ts_pid_t *pid, ts_90khz_t i_pcr )
 {
     demux_sys_t   *p_sys = p_demux->p_sys;
 
@@ -2449,7 +2414,12 @@ static void PCRHandle( demux_t *p_demux, ts_pid_t *pid, stime_t i_pcr )
         ts_pmt_t *p_pmt = p_pat->programs.p_elems[i]->u.p_pmt;
         if( p_pmt->pcr.b_disable )
             continue;
-        stime_t i_program_pcr = TimeStampWrapAround( p_pmt->pcr.i_first, i_pcr );
+
+        vlc_tick_t i_past_pcr = p_pmt->pcr.i_current;
+        if( i_past_pcr == VLC_TICK_INVALID )
+            i_past_pcr = p_pmt->pcr.i_first;
+
+        vlc_tick_t i_program_pcr = TimeStampWrapAround( i_past_pcr, FROM_SCALE(i_pcr) );
 
         if( p_pmt->i_pid_pcr == 0x1FFF ) /* That program has no dedicated PCR pid ISO/IEC 13818-1 2.4.4.9 */
         {
@@ -2465,7 +2435,7 @@ static void PCRHandle( demux_t *p_demux, ts_pid_t *pid, stime_t i_pcr )
             if( p_pmt->i_pid_pcr == pid->i_pid ) /* If that program references current pid as PCR */
             {
                 /* We've found a target group for update */
-                PCRCheckDTS( p_demux, p_pmt, i_pcr );
+                PCRCheckDTS( p_demux, p_pmt, FROM_SCALE(i_pcr) );
                 ProgramSetPCR( p_demux, p_pmt, i_program_pcr );
             }
         }
@@ -2525,13 +2495,13 @@ static void PCRFixHandle( demux_t *p_demux, ts_pmt_t *p_pmt, block_t *p_block )
         return;
     }
     /* Record the first data packet timestamp in case there won't be any PCR */
-    else if( p_pmt->pcr.i_first_dts == TS_TICK_UNKNOWN )
+    else if( p_pmt->pcr.i_first_dts == VLC_TICK_INVALID )
     {
-        p_pmt->pcr.i_first_dts = TO_SCALE(p_block->i_dts);
+        p_pmt->pcr.i_first_dts = p_block->i_dts;
     }
-    else if( p_block->i_dts - FROM_SCALE(p_pmt->pcr.i_first_dts) > VLC_TICK_FROM_MS(500) ) /* "PCR repeat rate shall not exceed 100ms" */
+    else if( p_block->i_dts - p_pmt->pcr.i_first_dts > VLC_TICK_FROM_MS(500) ) /* "PCR repeat rate shall not exceed 100ms" */
     {
-        if( p_pmt->pcr.i_current < 0 &&
+        if( p_pmt->pcr.i_current == VLC_TICK_INVALID &&
             GetPID( p_sys, p_pmt->i_pid_pcr )->probed.i_pcr_count == 0 )
         {
             int i_cand = FindPCRCandidate( p_pmt );
@@ -2697,12 +2667,14 @@ static bool GatherPESData( demux_t *p_demux, ts_pid_t *p_pid, block_t *p_pkt, si
                                  .priv = p_pid,
                                  .pf_parse = PESDataChainHandle };
     const bool b_unit_start = p_pkt->p_buffer[1]&0x40;
+
     p_pkt->p_buffer += i_skip; /* point to PES */
     p_pkt->i_buffer -= i_skip;
 
     const ts_es_t *p_es = p_pid->u.p_stream->p_es;
-    stime_t i_append_pcr = ( p_es && p_es->p_program )
-                         ? p_es->p_program->pcr.i_current : TS_TICK_UNKNOWN;
+    ts_90khz_t i_append_pcr = ( p_es && p_es->p_program && p_es->p_program->pcr.i_current != VLC_TICK_INVALID )
+                                  ? TO_SCALE(p_es->p_program->pcr.i_current)
+                                  : TS_90KHZ_INVALID;
 
     return ts_pes_Gather( &cb, p_pid->u.p_stream,
                           p_pkt, b_unit_start,

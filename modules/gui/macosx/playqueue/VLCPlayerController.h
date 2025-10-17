@@ -30,6 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class VLCPlayerTitle;
 @class VLCProgramMetaData;
 @class VLCInputItem;
+@class VLCMediaLibraryMediaItem;
 
 extern NSString *VLCPlayerElementaryStreamID;
 extern NSString *VLCTick;
@@ -316,7 +317,13 @@ extern const CGFloat VLCVolumeDefault;
  * @return the current media item, NULL if none
  * @note it is the receiver's obligation to release the input item
  */
-@property (readonly, nullable) VLCInputItem * currentMedia;
+@property (readonly, nullable) VLCInputItem *currentMedia;
+
+/**
+ * get the relevant media library item for the current media item
+ * @return the current media library media, NULL if no current input item OR is not an ML item
+ */
+@property (readonly, nullable) VLCMediaLibraryMediaItem *currentMediaLibraryItem;
 
 /**
  * returns the duration of the current media in vlc ticks
@@ -332,6 +339,12 @@ extern const CGFloat VLCVolumeDefault;
  * returns the name of the current media or NULL if there is none
  */
 @property (readonly, copy, nullable) NSString *nameOfCurrentMediaItem;
+
+/**
+ * returns whether the current playing item is an audio item or not
+ */
+
+@property (readonly) BOOL currentMediaIsAudioOnly;
 
 /**
  * the current player state
@@ -435,7 +448,7 @@ extern const CGFloat VLCVolumeDefault;
  * @note A started and playing media doesn't have necessarily a valid time.
  * @note listen to VLCPlayerTimeAndPositionChanged to be notified about changes to this property
  */
-@property (readonly) float position;
+@property (readonly) double position;
 
 /**
  * set the playback position as a percentage (range 0.0 to 1.0) for the currently playing media

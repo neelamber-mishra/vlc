@@ -163,10 +163,15 @@ case "${host_os}" in
     SYS=darwin
     ac_cv_func_aligned_alloc=no
 
-    dnl Work around an Xcode 11 bug, fixed in Xcode 11.3.1
-    AX_APPEND_FLAG([-fno-stack-check], [CFLAGS])
-    AX_APPEND_FLAG([-fno-stack-check], [CXXFLAGS])
-    AX_APPEND_FLAG([-fno-stack-check], [OBJCFLAGS])
+    AC_MSG_CHECKING([if AppleClang requires -fno-stack-check])
+    COMPILER_VERSION_MAJ="$(${CC} -dumpversion | cut -d '.' -f -1)"
+    AS_IF([ test ${COMPILER_VERSION_MAJ} -eq 11 ],[
+      dnl Work around an Xcode 11 bug, fixed in Xcode 11.3.1
+      AC_MSG_RESULT([yes])
+      AX_APPEND_FLAG([-fno-stack-check], [CFLAGS])
+      AX_APPEND_FLAG([-fno-stack-check], [CXXFLAGS])
+      AX_APPEND_FLAG([-fno-stack-check], [OBJCFLAGS])
+    ],[AC_MSG_RESULT([no])])
 
     case "${host_cpu}" in
       i?86)
@@ -2565,8 +2570,10 @@ AC_ARG_ENABLE([mpc],
 if test "${enable_mpc}" != "no"
 then
     AC_CHECK_HEADERS([mpc/mpcdec.h], [
+      AC_CHECK_LIB([mpcdec], [mpc_demux_init], [
         VLC_ADD_PLUGIN([mpc])
         VLC_ADD_LIBS([mpc],[-lmpcdec])
+      ],, [$LIBM])
     ])
 fi
 
@@ -2675,9 +2682,9 @@ AS_HELP_STRING([--enable-merge-ffmpeg], [merge FFmpeg-based plugins (default dis
 ])
 AM_CONDITIONAL([MERGE_FFMPEG], [test "$enable_merge_ffmpeg" != "no"])
 
-dnl We require ffmpeg >= 4.2
-dnl Ubuntu Focal (20.04 LTS) has 4.2, debian stable (bookworm) has 5.1
-PKG_HAVE_WITH_MODULES([AVCODEC], [libavcodec >= 58.54.100 libavutil >= 56.31.100],
+dnl We require ffmpeg >= 4.4
+dnl Ubuntu Jammy (22.04 LTS) has 4.4, debian stable (trixie) has 7.1
+PKG_HAVE_WITH_MODULES([AVCODEC], [libavcodec >= 58.134.100 libavutil >= 56.70.100],
                        [libavcodec codec (default enabled)], [yes])
 
 dnl
@@ -2824,7 +2831,7 @@ AS_HELP_STRING([--enable-avformat], [libavformat containers (default enabled)]),
 ])
 have_avformat="no"
 AS_IF([test "${enable_avformat}" != "no"], [
-  PKG_CHECK_MODULES(AVFORMAT,[libavformat >= 58.29.100 libavcodec libavutil], [
+  PKG_CHECK_MODULES(AVFORMAT,[libavformat >= 58.76.100 libavcodec libavutil], [
       have_avformat="yes"
       VLC_SAVE_FLAGS
       CPPFLAGS="${CPPFLAGS} ${AVFORMAT_CFLAGS}"
@@ -3975,18 +3982,28 @@ AS_IF([test -n "$PKG_CONFIG"],[
     AS_IF([test "${PROTOC}" != "no"], [
         dnl silently checks the protoc version matches the protobuf library
         PROTOC_FULL_VERSION="$(eval ${PROTOC} --version 2>/dev/null | head -1 | sed s/'.* '//)"
-        PROTOC_MAJ_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f -1)"
-        AS_IF([test "${PROTOC_MAJ_VERSION}" -lt "22" ], [
+        PROTOC_TEST_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f -1)"
+        AS_IF([test "${PROTOC_TEST_VERSION}" = "3" ], [
+          PROTOC_TEST_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f 2-2)"
+        ])
+        AS_IF([test "${PROTOC_TEST_VERSION}" -lt "5" ], [
+            dnl protoc x.y.0 is compatible with protobuf x.y.*
+            PROTOBUF_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f -2)"
+            PROTOBUF_MAX_VERSION="${PROTOBUF_VERSION%.*}.$((${PROTOBUF_VERSION##*.}+1))"
+            PROTOBUF_TEST="protobuf-lite >= ${PROTOBUF_VERSION} protobuf-lite < ${PROTOBUF_MAX_VERSION}"
+        ],[
+          AS_IF([test "${PROTOC_TEST_VERSION}" -lt "22" ], [
             dnl protoc x.y.z is compatible with protobuf x.y.z
             PROTOBUF_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f -3)"
             dnl the protoc version is in the x.y.z format but protobuf version is in the x.y.z.r format
             PROTOBUF_MAX_VERSION="${PROTOBUF_VERSION%.*}.$((${PROTOBUF_VERSION##*.}+1))"
             PROTOBUF_TEST="protobuf-lite >= ${PROTOBUF_VERSION} protobuf-lite < ${PROTOBUF_MAX_VERSION}"
-        ],[
+          ],[
             dnl protoc x.y is compatible with protobuf x.y.*
             PROTOBUF_VERSION="$(echo ${PROTOC_FULL_VERSION} | cut -d '.' -f -2)"
             PROTOBUF_MAX_VERSION="${PROTOBUF_VERSION%.*}.$((${PROTOBUF_VERSION##*.}+1))"
             PROTOBUF_TEST="protobuf-lite >= ${PROTOBUF_VERSION} protobuf-lite < ${PROTOBUF_MAX_VERSION}"
+          ])
         ])
         AC_MSG_CHECKING([protobuf-lite matches ${PROTOC} version ${PROTOBUF_VERSION}])
         ($PKG_CONFIG --exists --print-errors "${PROTOBUF_TEST}") 2>&AS_MESSAGE_FD
@@ -4038,6 +4055,7 @@ have_qt_gui_private="no"
 have_qt65="no"
 have_qt_zstd="no"
 have_fxc="no"
+have_qt_xcb="no"
 AS_IF([test "${enable_qt}" != "no"], [
   have_qt="yes"
   dnl use any qmake that is available, including from contrib tools
@@ -4131,9 +4149,16 @@ AS_IF([test "${enable_qt}" != "no"], [
         --builddir ${ac_pwd}/modules/gui/qt \
         --ldflags \
         ${qmake_additional_params})
+      QT_MOC_INCLUDE_DIRS=$(${PYTHON3} ${srcdir}/modules/gui/qt/scripts/static_dirs.py \
+        --qmake "${QMAKE6}" --qtconf "${with_qtconf}" \
+        --pro ${srcdir_abs}/modules/gui/qt/qt6.pro \
+        --builddir ${ac_pwd}/modules/gui/qt \
+        --moc_include_dirs \
+        ${qmake_additional_params})
       AC_SUBST([QT_LIBS])
       AC_SUBST([QT_CFLAGS])
       AC_SUBST([QT_LDFLAGS])
+      AC_SUBST([QT_MOC_INCLUDE_DIRS])
 
       QT_LIBEXEC_DIRECTORY="$(${QT_PATHS}     -query QT_HOST_LIBEXECS 2>/dev/null)"
       QT_QML_LIBEXEC_DIRECTORY=${QT_LIBEXEC_DIRECTORY}
@@ -4144,6 +4169,10 @@ AS_IF([test "${enable_qt}" != "no"], [
       AC_PATH_PROGS(RCC, [rcc], rcc, ["${QT_LIBEXEC_DIRECTORY}"])
       AC_PATH_PROGS(UIC, [uic], uic, ["${QT_LIBEXEC_DIRECTORY}"])
       AC_PATH_PROGS(QSB, [qsb], qsb, ["${QT_SHADERTOOLS_BIN_DIRECTORY}"])
+      AS_IF([test "${MOC}" = "no" -o "${RCC}" = "no" -o "${UIC}" = "no" -o "${QSB}" = "no"], [
+          AC_MSG_WARN([some qt build tools are missing])
+          have_qt="no"
+      ])
       AC_PATH_PROGS(QMLCACHEGEN, [qmlcachegen], no, ["${QT_QML_LIBEXEC_DIRECTORY}"])
       AS_IF([test "${QMLCACHEGEN}" = "no"], [
           AC_MSG_WARN([qmlcachegen not found])
@@ -4151,11 +4180,6 @@ AS_IF([test "${enable_qt}" != "no"], [
 
       AC_MSG_CHECKING([if required Qt plugins are installed with ${QMAKE6} and conf ${with_qtconf}])
 
-      AS_IF([test "${have_qt65}" = "yes"], [
-        qt_qml_effects_module="QtQuick.Effects"
-      ], [
-        qt_qml_effects_module="Qt5Compat.GraphicalEffects"
-      ])
       AS_IF([${PYTHON3} ${srcdir}/buildsystem/check_qml_module.py \
             --qmake "${QMAKE6}" \
             --qtconf "${with_qtconf}" \
@@ -4165,7 +4189,6 @@ AS_IF([test "${enable_qt}" != "no"], [
             QtQuick.Layouts="" \
             QtQuick.Window="" \
             QtQuick.Controls="" \
-            ${qt_qml_effects_module}="" \
             >&AS_MESSAGE_FD ], [
         AC_MSG_RESULT([yes])
       ],[
@@ -4187,6 +4210,20 @@ AS_IF([test "${enable_qt}" != "no"], [
          AC_MSG_RESULT([yes])
         ],[
          AC_MSG_RESULT([no])
+        ])
+
+
+      AC_MSG_CHECKING([if Qt supports xcb])
+      AC_COMPILE_IFELSE(
+        [AC_LANG_PROGRAM([[#include <qtgui-config.h>]],[[
+        #if QT_FEATURE_xcb != 1
+        #error "Qt doesn't support xcb"
+        #endif
+        ]])], [
+          AC_MSG_RESULT([yes])
+          have_qt_xcb="yes"
+        ],[
+          AC_MSG_RESULT([no])
         ])
       VLC_RESTORE_FLAGS
 
@@ -4323,6 +4360,7 @@ AM_CONDITIONAL([HAVE_FXC], [test "${have_fxc}" = "yes"])
 AM_CONDITIONAL([HAVE_QT67], [test "${QT_VERSION_MAJ:-0}" -gt "6" || (test "${QT_VERSION_MAJ:-0}" = "6" && test "${QT_VERSION_MIN:-0}" -ge "7")])
 AM_CONDITIONAL([HAVE_QT65], [test "${have_qt65}" = "yes"])
 AM_CONDITIONAL([HAVE_QT_ZSTD], [test "${have_qt_zstd}" = "yes"])
+AM_CONDITIONAL([HAVE_QT_XCB], [test "${have_qt_xcb}" = "yes"])
 
 dnl
 dnl detect kde4-config patch (used for kde solids).
@@ -4417,6 +4455,44 @@ then
   ])
 
   dnl
+  dnl If possible, use xcrun to find the right metal tool
+  dnl
+
+  AS_IF([test ! "${XCRUN}" = "no"], [
+    AC_MSG_CHECKING([for metal (using xcrun)])
+    METAL="$(eval $XCRUN -f metal 2>/dev/null || echo no)"
+    AC_MSG_RESULT([${METAL}])
+  ], [
+    AC_MSG_WARN([Looking for tools without using xcrun])
+  ])
+
+  AS_IF([test "${METAL}" = "no"], [
+    AC_PATH_PROG(METAL, [metal], [no])
+    AS_IF([test "${METAL}" = "no"], [
+      AC_MSG_ERROR([metal was not found, but is required for --enable-macosx])
+    ])
+  ])
+
+  dnl
+  dnl If possible, use xcrun to find the right metallib tool
+  dnl
+
+  AS_IF([test ! "${XCRUN}" = "no"], [
+    AC_MSG_CHECKING([for metallib (using xcrun)])
+    METALLIB="$(eval $XCRUN -f metallib 2>/dev/null || echo no)"
+    AC_MSG_RESULT([${METALLIB}])
+  ], [
+    AC_MSG_WARN([Looking for tools without using xcrun])
+  ])
+
+  AS_IF([test "${METALLIB}" = "no"], [
+    AC_PATH_PROG(METALLIB, [metallib], [no])
+    AS_IF([test "${METALLIB}" = "no"], [
+      AC_MSG_ERROR([metallib was not found, but is required for --enable-macosx, try xcodebuild -downloadComponent MetalToolchain])
+    ])
+  ])
+
+  dnl
   dnl If possible, use xcrun to find the right actool
   dnl
 
@@ -4434,7 +4510,25 @@ then
       AC_MSG_ERROR([actool was not found, but is required for --enable-macosx])
     ])
   ])
+
+  dnl
+  dnl  MacOS X gui module metal shaders
+  dnl
+  _enable_macosx_ui_shaders_default="yes"
+
+  AC_ARG_ENABLE([macosx-ui-shaders],
+    AS_HELP_STRING([--disable-macosx-ui-shaders], [Disable macOS UI Metal shaders (default: enabled if macOS UI is active)]),
+    [], [enable_macosx_ui_shaders="${_enable_macosx_ui_shaders_default}"]
+  )
+
+  if test "${enable_macosx_ui_shaders}" != "no"
+  then
+    dnl Tool checks for metal and metallib are already performed above if enable_macosx is true.
+    dnl We assume they are found if we reach this point and shaders are enabled.
+    AC_DEFINE([ENABLE_MACOSX_UI_SHADERS], [1], [Define to 1 if macOS UI Metal shaders are enabled.])
+  fi
 fi
+AM_CONDITIONAL([ENABLE_MACOSX_UI_SHADERS], [test "${enable_macosx_ui_shaders}" != "no" -a "${enable_macosx}" != "no" -a "${SYS}" = "darwin"])
 AM_CONDITIONAL([ENABLE_MACOSX_UI], [test "$enable_macosx" != "no" -a "${SYS}" = "darwin"])
 
 dnl
@@ -4900,7 +4994,7 @@ AS_IF([test -z "$VLC_COMPILE_HOST"],[
    VLC_COMPILE_HOST=`hostname -f 2>/dev/null || hostname`
 ])
 AC_DEFINE_UNQUOTED([VLC_COMPILE_HOST], "$VLC_COMPILE_HOST", [host which ran configure])
-AC_DEFINE_UNQUOTED([VLC_COMPILER], "`$CC -v 2>&1 | tail -n 1 | sed -e 's/ *$//'`", [compiler])
+AC_DEFINE_UNQUOTED([VLC_COMPILER], "`$CC -v 2>&1 | grep -i 'version ' | tail -n 1 | sed -e 's/ *$//'`", [compiler])
 dnl
 dnl  Handle substvars that use $(top_srcdir)
 dnl

@@ -78,7 +78,7 @@ moc_headers = files(
     'medialibrary/medialib.hpp',
     'medialibrary/mlmediastore.hpp',
     'medialibrary/mlalbummodel.hpp',
-    'medialibrary/mlalbumtrackmodel.hpp',
+    'medialibrary/mlaudiomodel.hpp',
     'medialibrary/mlartistmodel.hpp',
     'medialibrary/mlbookmarkmodel.hpp',
     'medialibrary/mlbasemodel.hpp',
@@ -87,10 +87,11 @@ moc_headers = files(
     'medialibrary/mlthreadpool.hpp',
     'medialibrary/mlqmltypes.hpp',
     'medialibrary/mlmedia.hpp',
-    'medialibrary/mlrecentsmodel.hpp',
-    'medialibrary/mlrecentsvideomodel.hpp',
+    'medialibrary/mlrecentmediamodel.hpp',
+    'medialibrary/mlrecentvideomodel.hpp',
     'medialibrary/mlurlmodel.hpp',
     'medialibrary/mlvideo.hpp',
+    'medialibrary/mlmediamodel.hpp',
     'medialibrary/mlvideomodel.hpp',
     'medialibrary/mlplaylistlistmodel.hpp',
     'medialibrary/mlplaylistmodel.hpp',
@@ -145,6 +146,7 @@ moc_headers = files(
     'util/dismiss_popup_event_filter.hpp',
     'util/list_selection_model.hpp',
     'util/qsgtextureview.hpp',
+    'util/textureproviderobserver.hpp',
     'widgets/native/animators.hpp',
     'widgets/native/csdthemeimage.hpp',
     'widgets/native/customwidgets.hpp',
@@ -300,10 +302,10 @@ qt_plugin_sources = files(
     'medialibrary/mlalbum.hpp',
     'medialibrary/mlalbummodel.cpp',
     'medialibrary/mlalbummodel.hpp',
-    'medialibrary/mlalbumtrack.cpp',
-    'medialibrary/mlalbumtrack.hpp',
-    'medialibrary/mlalbumtrackmodel.cpp',
-    'medialibrary/mlalbumtrackmodel.hpp',
+    'medialibrary/mlaudio.cpp',
+    'medialibrary/mlaudio.hpp',
+    'medialibrary/mlaudiomodel.cpp',
+    'medialibrary/mlaudiomodel.hpp',
     'medialibrary/mlartist.cpp',
     'medialibrary/mlartist.hpp',
     'medialibrary/mlartistmodel.cpp',
@@ -331,10 +333,10 @@ qt_plugin_sources = files(
     'medialibrary/mlmedia.hpp',
     'medialibrary/mlqueryparams.cpp',
     'medialibrary/mlqueryparams.hpp',
-    'medialibrary/mlrecentsmodel.cpp',
-    'medialibrary/mlrecentsmodel.hpp',
-    'medialibrary/mlrecentsvideomodel.cpp',
-    'medialibrary/mlrecentsvideomodel.hpp',
+    'medialibrary/mlrecentmediamodel.cpp',
+    'medialibrary/mlrecentmediamodel.hpp',
+    'medialibrary/mlrecentvideomodel.cpp',
+    'medialibrary/mlrecentvideomodel.hpp',
     'medialibrary/mlurlmodel.cpp',
     'medialibrary/mlurlmodel.hpp',
     'medialibrary/mlvideo.cpp',
@@ -343,6 +345,8 @@ qt_plugin_sources = files(
     'medialibrary/mlvideofoldersmodel.hpp',
     'medialibrary/mlvideogroupsmodel.cpp',
     'medialibrary/mlvideogroupsmodel.hpp',
+    'medialibrary/mlmediamodel.cpp',
+    'medialibrary/mlmediamodel.hpp',
     'medialibrary/mlvideomodel.cpp',
     'medialibrary/mlvideomodel.hpp',
     'medialibrary/mlplaylist.cpp',
@@ -476,6 +480,8 @@ qt_plugin_sources = files(
     'util/qsgroundedrectangularimagenode.hpp',
     'util/qsgtextureview.cpp',
     'util/qsgtextureview.hpp',
+    'util/textureproviderobserver.cpp',
+    'util/textureproviderobserver.hpp',
     'util/dismiss_popup_event_filter.cpp',
     'util/dismiss_popup_event_filter.hpp',
     'util/list_selection_model.cpp',
@@ -595,8 +601,6 @@ qml_modules += {
         'maininterface/qml/MainInterface.qml',
         'maininterface/qml/MainViewLoader.qml',
         'maininterface/qml/MainDisplay.qml',
-        'maininterface/qml/MainGridView.qml',
-        'maininterface/qml/MainTableView.qml',
         'maininterface/qml/NoMedialibHome.qml'
     ),
 }
@@ -607,6 +611,9 @@ qml_modules += {
     'sources': files(
         'medialibrary/qml/ArtistTopBanner.qml',
         'medialibrary/qml/AudioGridItem.qml',
+        'medialibrary/qml/HomeDisplay.qml',
+        'medialibrary/qml/HomePage.qml',
+        'medialibrary/qml/MediaView.qml',
         'medialibrary/qml/VideoGroupDisplay.qml',
         'medialibrary/qml/MusicAlbums.qml',
         'medialibrary/qml/MusicAlbumsDisplay.qml',
@@ -631,8 +638,6 @@ qml_modules += {
         'medialibrary/qml/PlaylistMedia.qml',
         'medialibrary/qml/PlaylistMediaDisplay.qml',
         'medialibrary/qml/VideoPlaylistsDisplay.qml',
-        'medialibrary/qml/VideoRecentVideos.qml',
-        'medialibrary/qml/VideoRecentVideosDisplay.qml',
         'medialibrary/qml/VideoGridItem.qml',
         'medialibrary/qml/VideoInfoExpandPanel.qml',
         'medialibrary/qml/VideoListDisplay.qml',
@@ -803,14 +808,6 @@ qml_modules += {
     ),
 }
 
-if qt6_dep.version().version_compare('>=6.5.0')
-    qml_dynamicshadow_file = 'widgets/qml/DynamicShadow.qml'
-    qml_blureffect_file = 'widgets/qml/BlurEffect.qml'
-else
-    qml_dynamicshadow_file = 'widgets/qml/compat/DynamicShadow.qml'
-    qml_blureffect_file = 'widgets/qml/compat/BlurEffect.qml'
-endif
-
 qml_modules += {
     'name' : 'VLC.Widgets',
     'target' : 'widgets',
@@ -867,7 +864,7 @@ qml_modules += {
         'widgets/qml/NavigableCol.qml',
         'widgets/qml/NavigableRow.qml',
         'widgets/qml/PlayCover.qml',
-        'widgets/qml/RoundButton.qml',
+        'widgets/qml/RoundButtonExt.qml',
         'widgets/qml/ScaledImage.qml',
         'widgets/qml/ScanProgressBar.qml',
         'widgets/qml/TextAutoScroller.qml',
@@ -896,13 +893,13 @@ qml_modules += {
         'widgets/qml/PartialEffect.qml',
         'widgets/qml/ViewHeader.qml',
         'widgets/qml/ProgressIndicator.qml',
-        'widgets/qml/RectangularGlow.qml',
-        qml_dynamicshadow_file,
-        qml_blureffect_file,
         'widgets/qml/ImageExt.qml',
         'widgets/qml/ScrollBarExt.qml',
         'widgets/qml/FastBlend.qml',
         'widgets/qml/RadioButtonExt.qml',
+        'widgets/qml/RoundedRectangleShadow.qml',
+        'widgets/qml/VoronoiSnow.qml',
+        'widgets/qml/DualKawaseBlur.qml',
     ),
 }
 
@@ -1049,7 +1046,15 @@ if qt6_dep.found()
         ]
     endif
 
-    if x11_dep.found() and xcb_dep.found()
+    qt_xcb_check = '''
+    #include <qtgui-config.h>
+    #if QT_FEATURE_xcb != 1
+    #error "Qt doesn't have xcb support"
+    #endif
+    '''
+    qt_features_xcb = cpp.compiles(qt_xcb_check, dependencies: qt6_dep, name: 'Qt features xcb')
+
+    if x11_dep.found() and xcb_dep.found() and qt_features_xcb
         qt_extra_deps += xcb_dep
         qt_extra_deps += x11_dep
         qt_extra_flags += '-DQT_HAS_XCB'

@@ -26,6 +26,7 @@
 
 #import "extensions/NSString+Helpers.h"
 #import "extensions/NSMenu+VLCAdditions.h"
+#import "library/VLCLibraryController.h"
 #import "main/VLCMain.h"
 #import "playqueue/VLCPlayQueueController.h"
 #import "playqueue/VLCPlayQueueModel.h"
@@ -47,6 +48,7 @@
     NSMenuItem *_addFilesToPlayQueueMenuItem;
     NSMenuItem *_clearPlayQueueMenuItem;
     NSMenuItem *_sortMenuItem;
+    NSMenuItem *_createPlaylistMenuItem;
 }
 
 @property (readwrite, atomic) NSArray<NSMenuItem *> *items;
@@ -71,7 +73,7 @@
     _playMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Play") action:@selector(play:) keyEquivalent:@""];
     _playMenuItem.target = self;
 
-    _removeMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Delete") action:@selector(remove:) keyEquivalent:@""];
+    _removeMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Remove from Play Queue") action:@selector(remove:) keyEquivalent:@""];
     _removeMenuItem.target = self;
 
     _revealInFinderMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Reveal in Finder") action:@selector(revealInFinder:) keyEquivalent:@""];
@@ -83,11 +85,14 @@
     _addFilesToPlayQueueMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Add File...") action:@selector(addFilesToPlayQueue:) keyEquivalent:@""];
     _addFilesToPlayQueueMenuItem.target = self;
 
-    _clearPlayQueueMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Clear the play queue") action:@selector(clearPlayQueue:) keyEquivalent:@""];
+    _clearPlayQueueMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Clear Play Queue") action:@selector(clearPlayQueue:) keyEquivalent:@""];
     _clearPlayQueueMenuItem.target = self;
 
+    _createPlaylistMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Create Playlist from Queue") action:@selector(createPlaylistFromQueue:) keyEquivalent:@""];
+    _createPlaylistMenuItem.target = self;
+
     _playQueueSortingMenuController = [[VLCPlayQueueSortingMenuController alloc] init];
-    _sortMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Sort") action:nil keyEquivalent:@""];
+    _sortMenuItem = [[NSMenuItem alloc] initWithTitle:_NS("Sort Play Queue") action:nil keyEquivalent:@""];
     [_sortMenuItem setSubmenu:_playQueueSortingMenuController.playQueueSortingMenu];
 
     self.items = @[
@@ -98,6 +103,7 @@
         NSMenuItem.separatorItem,
         _addFilesToPlayQueueMenuItem,
         _clearPlayQueueMenuItem,
+        _createPlaylistMenuItem,
         _sortMenuItem
     ];
 
@@ -106,6 +112,7 @@
         NSMenuItem.separatorItem,
         _addFilesToPlayQueueMenuItem,
         _clearPlayQueueMenuItem,
+        _createPlaylistMenuItem,
         _sortMenuItem
     ];
 
@@ -199,12 +206,36 @@
     [_playQueueController clearPlayQueue];
 }
 
+- (void)createPlaylistFromQueue:(id)sender
+{
+    NSIndexSet * const selectedIndexes = self.playQueueTableView.selectedRowIndexes;
+    
+    NSArray<VLCPlayQueueItem *> *items = nil;
+    if (selectedIndexes.count > 0) {
+        NSMutableArray<VLCPlayQueueItem *> * const selectedItems = [NSMutableArray arrayWithCapacity:selectedIndexes.count];
+        [selectedIndexes enumerateIndexesUsingBlock:^(const NSUInteger idx, BOOL * const stop) {
+            VLCPlayQueueItem * const item = [_playQueueController.playQueueModel playQueueItemAtIndex:idx];
+            if (item) {
+                [selectedItems addObject:item];
+            }
+        }];
+        items = selectedItems.copy;
+    } else {
+        items = _playQueueController.playQueueModel.playQueueItems;
+    }
+    
+    [VLCMain.sharedInstance.libraryController showCreatePlaylistDialogForPlayQueueItems:items];
+}
+
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem
 {
     if (menuItem == _addFilesToPlayQueueMenuItem) {
         return YES;
 
     } else if (menuItem == _clearPlayQueueMenuItem) {
+        return (self.playQueueTableView.numberOfRows > 0);
+
+    } else if (menuItem == _createPlaylistMenuItem) {
         return (self.playQueueTableView.numberOfRows > 0);
 
     } else if (menuItem == _removeMenuItem ||

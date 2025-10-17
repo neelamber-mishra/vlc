@@ -142,12 +142,6 @@ static NSString * const VLCLibrarySegmentCellIdentifier = @"VLCLibrarySegmentCel
                    options:nil];
     [self.outlineView reloadData];
 
-    NSTreeNode * const targetNode = [self nodeForSegmentType:currentSegmentType];
-    const NSInteger segmentIndex = [self.outlineView rowForItem:targetNode];
-    [self expandParentsOfNode:targetNode];
-    [self.outlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:segmentIndex]
-                  byExtendingSelection:NO];
-
     self.ignoreSegmentSelectionChanges = NO;
 
     [self updateBookmarkObservation];
@@ -158,6 +152,8 @@ static NSString * const VLCLibrarySegmentCellIdentifier = @"VLCLibrarySegmentCel
             [self.outlineView expandItem:node];
         }
     }
+
+    [self selectSegment:currentSegmentType];
 }
 
 - (void)updateBookmarkObservation
@@ -394,6 +390,9 @@ static NSString * const VLCLibrarySegmentCellIdentifier = @"VLCLibrarySegmentCel
     } else if ([representedObject isKindOfClass:VLCMediaLibraryGroup.class]) {
         [self.libraryWindow presentLibraryItem:(VLCMediaLibraryGroup *)representedObject];
     }
+    
+    // Refresh disclosure triangles when selection changes
+    [(VLCLibraryWindowNavigationSidebarOutlineView *)self.outlineView refreshDisclosureCaret];
 }
 
 - (BOOL)outlineView:(NSOutlineView*)outlineView isGroupItem:(id)item
@@ -401,6 +400,22 @@ static NSString * const VLCLibrarySegmentCellIdentifier = @"VLCLibrarySegmentCel
     NSTreeNode * const treeNode = (NSTreeNode *)item;
     VLCLibrarySegment * const segment = (VLCLibrarySegment *)treeNode.representedObject;
     return segment.segmentType == VLCLibraryHeaderSegmentType;
+}
+
+- (BOOL)outlineView:(nonnull NSOutlineView *)outlineView shouldCollapseItem:(nonnull id)item
+{
+    NSAssert(outlineView == _outlineView, @"VLCLibraryWindowNavigationSidebarController should only be a delegate for the libraryWindow nav sidebar outline view!");
+
+    // Don't allow collapsing the parent segment of the selected segment, if selection is a child
+    NSTreeNode * const treeNode = (NSTreeNode *)item;
+    VLCLibrarySegment * const segment = (VLCLibrarySegment *)treeNode.representedObject;
+    NSTreeNode * const selectedSegmentItem = (NSTreeNode *)[self.outlineView itemAtRow:self.outlineView.selectedRow];
+    VLCLibrarySegment * const selectedSegment = (VLCLibrarySegment *)selectedSegmentItem.representedObject;
+    const NSInteger childNodeIndex = [segment.childNodes indexOfObjectPassingTest:^BOOL(NSTreeNode * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        VLCLibrarySegment * const childSegment = (VLCLibrarySegment *)obj;
+        return childSegment.segmentType == selectedSegment.segmentType;
+    }];
+    return childNodeIndex == NSNotFound;
 }
 
 @end

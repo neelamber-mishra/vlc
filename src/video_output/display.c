@@ -43,6 +43,8 @@
 #include "display.h"
 #include "vout_internal.h"
 
+static int UpdateSourceSAR(vout_display_t *, const video_format_t *);
+
 static int vout_display_Control(vout_display_t *vd, int query)
 {
     return vd->ops->control(vd, query);
@@ -505,6 +507,8 @@ static int vout_UpdateSourceCrop(vout_display_t *vd)
     osys->source.i_visible_height = bottom - top;
     video_format_Print(VLC_OBJECT(vd), "CROPPED ", &osys->source);
 
+    err1 = UpdateSourceSAR(vd, vd->source);
+
     bool place_changed = PlaceVideoInDisplay(osys);
 
     err2 = vout_display_Control(vd, VOUT_DISPLAY_CHANGE_SOURCE_CROP);
@@ -573,10 +577,8 @@ void vout_UpdateDisplaySourceProperties(vout_display_t *vd, const video_format_t
     vout_display_priv_t *osys = container_of(vd, vout_display_priv_t, display);
     int err1 = VLC_SUCCESS, err2;
 
-    if (osys->dar.den == VLC_DAR_FROM_SOURCE.den && osys->dar.num == VLC_DAR_FROM_SOURCE.num) {
-        video_format_t fixed_src = *source;
-        VoutFixFormatAR( &fixed_src );
-        err2 = vout_SetSourceAspect(vd, fixed_src.i_sar_num, fixed_src.i_sar_den);
+    if (VLC_DAR_IS_FROM_SOURCE(osys->dar)) {
+        err2 = UpdateSourceSAR(vd, source);
         if (err2 != VLC_SUCCESS)
             err1 = err2;
     }
@@ -606,9 +608,12 @@ void vout_display_SetSize(vout_display_t *vd, unsigned width, unsigned height)
     osys->cfg.display.width  = width;
     osys->cfg.display.height = height;
 
+    err1 = UpdateSourceSAR(vd, vd->source);
+
     bool place_changed = PlaceVideoInDisplay(osys);
 
-    err2 = vout_display_Control(vd, VOUT_DISPLAY_CHANGE_DISPLAY_SIZE);
+    err2 = vd->ops->set_display_size == NULL ? VLC_SUCCESS :
+        vd->ops->set_display_size(vd, vd->cfg->display.width, vd->cfg->display.height);
     if (err2 != VLC_SUCCESS)
         err1 = err2;
 
@@ -664,27 +669,39 @@ void vout_SetDisplayZoom(vout_display_t *vd, unsigned num, unsigned den)
     }
 }
 
+static int UpdateSourceSAR(vout_display_t *vd, const video_format_t *source)
+{
+    vout_display_priv_t *osys = container_of(vd, vout_display_priv_t, display);
+    unsigned sar_num, sar_den;
+
+    if (VLC_DAR_IS_FROM_SOURCE(osys->dar)) {
+        video_format_t fixed_src = *source;
+        VoutFixFormatAR( &fixed_src );
+        sar_num = fixed_src.i_sar_num;
+        sar_den = fixed_src.i_sar_den;
+    } else if (VLC_DAR_IS_FILL_DISPLAY(osys->dar)) {
+        // trick vout_display_PlacePicture to fill the display
+        vlc_ureduce(&sar_num, &sar_den,
+                    (uint64_t)osys->cfg.display.width  * osys->source.i_visible_height,
+                    (uint64_t)osys->cfg.display.height * osys->source.i_visible_width, 0);
+    } else if (unlikely(osys->dar.num == 0 || osys->dar.den == 0)) {
+        // bogus values should be filtered in GetAspectRatio()
+        vlc_assert_unreachable();
+    } else {
+        vlc_ureduce(&sar_num, &sar_den,
+                    (uint64_t)osys->dar.num * osys->source.i_visible_height,
+                    (uint64_t)osys->dar.den * osys->source.i_visible_width, 0);
+    }
+
+    return vout_SetSourceAspect(vd, sar_num, sar_den);
+}
+
 void vout_SetDisplayAspect(vout_display_t *vd, unsigned dar_num, unsigned dar_den)
 {
     vout_display_priv_t *osys = container_of(vd, vout_display_priv_t, display);
     osys->dar = (vlc_rational_t){dar_num, dar_den};
 
-    if (dar_num == VLC_DAR_FROM_SOURCE.num && dar_den == VLC_DAR_FROM_SOURCE.den)
-        // use the source aspect ratio that we don't have yet
-        // see vout_UpdateDisplaySourceProperties()
-        return;
-
-    unsigned sar_num, sar_den;
-    if (unlikely(dar_num == 0 || dar_den == 0)) {
-        // bogus values should be filtered in GetAspectRatio()
-        vlc_assert_unreachable();
-    } else {
-        vlc_ureduce(&sar_num, &sar_den,
-                    (uint64_t)dar_num * osys->source.i_visible_height,
-                    (uint64_t)dar_den * osys->source.i_visible_width, 0);
-    }
-
-    int err1 = vout_SetSourceAspect(vd, sar_num, sar_den);
+    int err1 = UpdateSourceSAR(vd, vd->source);
     if (err1 != VLC_SUCCESS)
         vout_display_Reset(vd);
 }

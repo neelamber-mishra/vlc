@@ -25,8 +25,10 @@
 NSString * const VLCLibraryWindowPreferencePrefix = @"VLCLibraryWindow";
 
 NSString * const VLCLibraryHomeLibraryViewModePreferenceKey = @"HomeLibraryViewMode";
+NSString * const VLCLibraryFavoritesLibraryViewModePreferenceKey = @"FavoritesLibraryViewMode";
 NSString * const VLCLibraryVideoLibraryViewModePreferenceKey = @"VideoLibraryViewMode";
 NSString * const VLCLibraryShowsLibraryViewModePreferenceKey = @"ShowsLibraryViewMode";
+NSString * const VLCLibraryMoviesLibraryViewModePreferenceKey = @"MoviesLibraryViewMode";
 NSString * const VLCLibraryAlbumLibraryViewModePreferenceKey = @"AlbumLibraryViewMode";
 NSString * const VLCLibraryGenreLibraryViewModePreferenceKey = @"GenreLibraryViewMode";
 NSString * const VLCLibrarySongsLibraryViewModePreferenceKey = @"SongsLibraryViewMode";
@@ -97,6 +99,17 @@ static VLCLibraryWindowPersistentPreferences *sharedInstance = nil;
                                               value:homeLibraryViewMode];
 }
 
+- (VLCLibraryViewModeSegment)favoritesLibraryViewMode
+{
+    return [self libraryViewModePreferenceWithKey:VLCLibraryFavoritesLibraryViewModePreferenceKey];
+}
+
+- (void)setFavoritesLibraryViewMode:(VLCLibraryViewModeSegment)favoritesLibraryViewMode
+{
+    [self setLibraryWindowViewModePreferenceWithKey:VLCLibraryFavoritesLibraryViewModePreferenceKey
+                                              value:favoritesLibraryViewMode];
+}
+
 - (VLCLibraryViewModeSegment)videoLibraryViewMode
 {
     return [self libraryViewModePreferenceWithKey:VLCLibraryVideoLibraryViewModePreferenceKey];
@@ -117,6 +130,17 @@ static VLCLibraryWindowPersistentPreferences *sharedInstance = nil;
 {
     [self setLibraryWindowViewModePreferenceWithKey:VLCLibraryShowsLibraryViewModePreferenceKey
                                               value:showsLibraryViewMode];
+}
+
+- (VLCLibraryViewModeSegment)moviesLibraryViewMode
+{
+    return [self libraryViewModePreferenceWithKey:VLCLibraryMoviesLibraryViewModePreferenceKey];
+}
+
+- (void)setMoviesLibraryViewMode:(VLCLibraryViewModeSegment)moviesLibraryViewMode
+{
+    [self setLibraryWindowViewModePreferenceWithKey:VLCLibraryMoviesLibraryViewModePreferenceKey
+                                              value:moviesLibraryViewMode];
 }
 
 - (VLCLibraryViewModeSegment)albumLibraryViewMode

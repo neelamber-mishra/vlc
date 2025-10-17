@@ -30,7 +30,7 @@
 #define COLOR2_KEY "_res_C2"
 #define COLOR_ACCENT_KEY "_res_ACCENT"
 
-QPair<QByteArray, std::optional<QColor>> colorizeSvg(const QString& filename, const QList<QPair<QString, QString>>& replacements);
+QPair<QByteArray, QColor> colorizeSvg(const QString& filename, const QList<QPair<QString, QString>>& replacements);
 
 class SVGColorImageImageProvider: public QQuickAsyncImageProvider
 {
@@ -43,7 +43,7 @@ class SVGColorImageBuilder : public QObject
 {
     Q_OBJECT
 public:
-    SVGColorImageBuilder(QString path, QObject* parent = nullptr);
+    SVGColorImageBuilder(const QString &path, QObject* parent = nullptr);
 
     /**
      * @brief uri will generate an uri usable with images and roud images
@@ -112,7 +112,7 @@ public:
      * Handling transparent color properly would probably require a proper XML parser and defining colors
      * as defs entries using solidColor node (which Qt supports)
      */
-    Q_INVOKABLE SVGColorImageBuilder* colorize(QString path);
+    Q_INVOKABLE SVGColorImageBuilder* colorize(const QString &path);
 };
 
 #endif /* COLOR_SVG_IMAGE_PROVIDER_HPP */

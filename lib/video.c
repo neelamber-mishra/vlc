@@ -310,11 +310,11 @@ int libvlc_video_update_viewpoint( libvlc_media_player_t *p_mi,
 
 libvlc_video_stereo_mode_t libvlc_video_get_video_stereo_mode(libvlc_media_player_t *p_mi)
 {
-    static_assert( libvlc_VideoStereoAuto       == VIDEO_STEREO_OUTPUT_AUTO &&
-                   libvlc_VideoStereoStereo     == VIDEO_STEREO_OUTPUT_STEREO &&
-                   libvlc_VideoStereoLeftEye    == VIDEO_STEREO_OUTPUT_LEFT_ONLY &&
-                   libvlc_VideoStereoRightEye   == VIDEO_STEREO_OUTPUT_RIGHT_ONLY &&
-                   libvlc_VideoStereoSideBySide == VIDEO_STEREO_OUTPUT_SIDE_BY_SIDE,
+    static_assert( libvlc_VideoStereoAuto       == (int)VIDEO_STEREO_OUTPUT_AUTO &&
+                   libvlc_VideoStereoStereo     == (int)VIDEO_STEREO_OUTPUT_STEREO &&
+                   libvlc_VideoStereoLeftEye    == (int)VIDEO_STEREO_OUTPUT_LEFT_ONLY &&
+                   libvlc_VideoStereoRightEye   == (int)VIDEO_STEREO_OUTPUT_RIGHT_ONLY &&
+                   libvlc_VideoStereoSideBySide == (int)VIDEO_STEREO_OUTPUT_SIDE_BY_SIDE,
                    "stereo mode mismatch" );
 
     return var_GetInteger(p_mi, "video-stereo-mode");
@@ -500,8 +500,8 @@ bool libvlc_video_get_teletext_transparency( libvlc_media_player_t *p_mi )
 /******************************************************************************
  * libvlc_video_set_deinterlace : enable/disable/auto deinterlace and filter
  *****************************************************************************/
-void libvlc_video_set_deinterlace( libvlc_media_player_t *p_mi, int deinterlace,
-                                   const char *psz_mode )
+int libvlc_video_set_deinterlace( libvlc_media_player_t *p_mi, int deinterlace,
+                                  const char *psz_mode )
 {
     if (deinterlace != 0 && deinterlace != 1)
         deinterlace = -1;
@@ -513,7 +513,7 @@ void libvlc_video_set_deinterlace( libvlc_media_player_t *p_mi, int deinterlace,
      && strcmp (psz_mode, "yadif")    && strcmp (psz_mode, "yadif2x")
      && strcmp (psz_mode, "phosphor") && strcmp (psz_mode, "ivtc")
      && strcmp (psz_mode, "auto"))
-        return;
+        return -1;
 
     if (psz_mode && deinterlace != 0)
         var_SetString (p_mi, "deinterlace-mode", psz_mode);
@@ -533,6 +533,21 @@ void libvlc_video_set_deinterlace( libvlc_media_player_t *p_mi, int deinterlace,
         vout_Release(p_vout);
     }
     free (pp_vouts);
+    return 0;
+}
+
+int libvlc_video_get_deinterlace(libvlc_media_player_t *mp, char **modep)
+{
+    int tristate = var_GetInteger(mp, "deinterlace");
+
+    if (modep != NULL) {
+        if (tristate != 0)
+            *modep = var_GetString(mp, "deinterlace-mode");
+        else
+            *modep = NULL;
+    }
+
+    return tristate;
 }
 
 /* ************** */
@@ -696,6 +711,7 @@ set_value( libvlc_media_player_t *p_mi, const char *restrict name,
             var_TriggerCallback( pp_vouts[i], "sub-source" );
         vout_Release(pp_vouts[i]);
     }
+    free (pp_vouts);
 
     if( opt->type == 0 )
         free( new_val.psz_string );

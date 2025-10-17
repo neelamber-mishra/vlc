@@ -30,6 +30,16 @@ QtObject {
         return (!!object && (object instanceof type))
     }
 
+    function transferFocus(item, reason) {
+        if (item.activeFocus && item.focusReason === reason)
+            return
+
+        if (item.setCurrentItemFocus)
+            item.setCurrentItemFocus(reason)
+        else
+            item.forceActiveFocus(reason)
+    }
+
     // NOTE: This allows us to force another 'reason' even when the item has activeFocus.
     function enforceFocus(item, reason) {
         if (item.activeFocus && item.focusReason === reason)
@@ -38,6 +48,9 @@ QtObject {
         item.focus = false;
 
         item.forceActiveFocus(reason);
+
+        if (item.focusReason !== undefined)
+            item.focusReason = reason // Control's focus reason sometimes is not adjusted with `forceActiveFocus()`, Qt bug?
     }
 
     function pointInRadius(x, y, radius) {
@@ -123,5 +136,22 @@ QtObject {
             return false
         return !(((item.x < (area.x + area.width)) && ((item.x + item.width) > area.x)) &&
                  ((item.y < (area.y + area.height)) && ((item.y + item.height) > area.y)))
+    }
+
+    // Similar to `ItemView::positionViewAtIndex()` with `ItemView.Contain`,
+    // but only the works in the y-axis for now.
+    // The behavior is undefined if the item is not a visual child of the
+    // content item. However, it is not required for the item to be a direct
+    // child of the content item.
+    function positionFlickableToContainItem(flickable: Flickable, item: Item) {
+        console.assert(flickable)
+        console.assert(item)
+        console.assert(item.parent)
+        const mappedRect = flickable.mapFromItem(item.parent, Qt.rect(item.x, item.y, item.width, item.height))
+        // Flickable does not fully contain the item:
+        if ((mappedRect.y < 0) || ((mappedRect.y + mappedRect.height) > flickable.height))
+            flickable.contentY = Math.min(Math.max(-flickable.topMargin,
+                                                   flickable.contentItem.mapFromItem(item.parent, item.x, item.y).y - Math.max(0, ((flickable.height - item.height) / 2))),
+                                          flickable.contentHeight - flickable.height + flickable.bottomMargin)
     }
 }

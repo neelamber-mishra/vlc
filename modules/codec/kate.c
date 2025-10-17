@@ -309,7 +309,7 @@ vlc_module_begin ()
 #ifdef ENABLE_PACKETIZER
     add_submodule ()
     set_description( N_("Kate text subtitles packetizer") )
-    set_capability( "packetizer", 100 )
+    set_capability( "spu packetizer", 100 )
     set_callbacks( OpenPacketizer, CloseDecoder )
     add_shortcut( "kate" )
 #endif
@@ -852,6 +852,10 @@ exit:
     fmt.i_height         =
     fmt.i_visible_height = p_fmt_src->i_height;
     fmt.i_x_offset       = fmt.i_y_offset = 0;
+    fmt.transfer         = TRANSFER_FUNC_SRGB;
+    fmt.primaries        = COLOR_PRIMARIES_SRGB;
+    fmt.space            = COLOR_SPACE_SRGB;
+    fmt.color_range      = COLOR_RANGE_FULL;
 
     subpicture_region_t *p_r = subpicture_region_New( &fmt );
     if( !p_r )

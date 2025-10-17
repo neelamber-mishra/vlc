@@ -29,7 +29,7 @@
 
 @interface VLCPlayQueueModel ()
 {
-    NSMutableArray *_playQueueArray;
+    NSMutableArray<VLCPlayQueueItem *> *_playQueueArray;
 }
 @end
 
@@ -49,6 +49,11 @@
     return _playQueueArray.count;
 }
 
+- (NSArray<VLCPlayQueueItem *> *)playQueueItems
+{
+    return [_playQueueArray copy];
+}
+
 - (void)dropExistingData
 {
     [_playQueueArray removeAllObjects];
@@ -63,12 +68,12 @@
     return _playQueueArray[index];
 }
 
-- (void)addItems:(NSArray *)array
+- (void)addItems:(NSArray<VLCPlayQueueItem *> *)array
 {
     [_playQueueArray addObjectsFromArray:array];
 }
 
-- (void)addItems:(NSArray *)array atIndex:(size_t)index count:(size_t)count
+- (void)addItems:(NSArray<VLCPlayQueueItem *> *)array atIndex:(size_t)index count:(size_t)count
 {
     [_playQueueArray insertObjects:array atIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(index, count)]];
 }
@@ -90,5 +95,10 @@
     VLCPlayQueueItem * const item = _playQueueArray[index];
     [item updateRepresentation];
 }
-
+- (void)replaceItemAtIndex:(size_t)index withItem:(VLCPlayQueueItem *)newItem
+{
+    NSParameterAssert(index >= 0 && index < _playQueueArray.count);
+    NSParameterAssert(newItem != nil);
+    [_playQueueArray replaceObjectAtIndex:index withObject:newItem];
+}
 @end

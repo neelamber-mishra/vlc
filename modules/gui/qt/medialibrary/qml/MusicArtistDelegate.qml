@@ -69,6 +69,12 @@ T.ItemDelegate {
 
     Accessible.onPressAction: root.itemClicked()
 
+    Component.onCompleted: {
+        // Qt Quick AbstractButton sets a cursor for itself, unset it so that if the view has
+        // busy cursor, it is visible over the delegate:
+        MainCtx.unsetCursor(this)
+    }
+
     // Childs
 
     readonly property ColorContext colorContext: ColorContext {
@@ -166,7 +172,7 @@ T.ItemDelegate {
             Layout.fillHeight: true
             Layout.preferredWidth: height
 
-            radius: width
+            radius: width / 2
 
             source: (model.cover) ? model.cover
                                   : VLCStyle.noArtArtistSmall
@@ -180,6 +186,8 @@ T.ItemDelegate {
                                                  : theme.border
 
             borderWidth: VLCStyle.dp(1, VLCStyle.scale)
+
+            fillMode: Image.PreserveAspectCrop
 
             // FIXME: Qt bug (observed 6.2 and 6.8): Without an alpha node beneath the image, the image does not get rendered.
             Rectangle {

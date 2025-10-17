@@ -138,6 +138,8 @@ Loader {
 
         // NOTE: This call is useful to avoid a binding loop on currentComponent.
         currentComponentChanged.connect(_updateView)
+
+        isLoadingChanged() // in case boolean default value is `true`, currently it is not
     }
 
     onModelChanged: resetFocus()
@@ -216,8 +218,19 @@ Loader {
 
         z: 1
 
-        active: !count && emptyLabel && !(_loadingItem && _loadingItem.visible)
+        // We can not depend on the existence of loading indicator here, unless we want this to be a delayed binding.
+        // Instead, use the condition where loading indicator is created (either shown, or pending to be shown):
+        active: (root.count === 0) && root.emptyLabel && (!root.isLoading || !root.loadingComponent)
 
         sourceComponent: emptyLabel
+    }
+
+    // The encapsulating Loader is a focus scope. If it has active focus,
+    // is there any reason why its loaded item would not have focus?
+    Binding {
+        target: root.currentItem
+        when: root.activeFocus
+        property: "focus"
+        value: true
     }
 }

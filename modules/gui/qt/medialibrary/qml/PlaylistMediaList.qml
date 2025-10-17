@@ -47,6 +47,13 @@ MainViewLoader {
     readonly property int contentLeftMargin: currentItem?.contentLeftMargin ?? 0
     readonly property int contentRightMargin: currentItem?.contentRightMargin ?? 0
 
+    property int displayMarginBeginning: 0
+    property int displayMarginEnd: 0
+
+    // Currently only respected by the list view:
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     property alias searchPattern: playlistModel.searchPattern
     property alias sortOrder: playlistModel.sortOrder
     property alias sortCriteria: playlistModel.sortCriteria
@@ -80,6 +87,9 @@ MainViewLoader {
         resetFocus()
     }
 
+    Component.onCompleted: {
+        root.Keys.deletePressed.connect(root.deleteSelectedPlaylists)
+    }
 
     //---------------------------------------------------------------------------------------------
     // Private
@@ -106,8 +116,8 @@ MainViewLoader {
 
         coverPrefix: (isMusic) ? "playlist-music" : "playlist-video"
 
-        onTransactionPendingChanged: {
-            if (transactionPending) {
+        function onBusynessChanged() {
+            if (transactionPending || loading) {
                 MainCtx.setCursor(root, Qt.BusyCursor)
                 visibilityTimer.start()
             } else {
@@ -115,6 +125,12 @@ MainViewLoader {
                 progressIndicator.visible = false
                 MainCtx.unsetCursor(root)
             }
+        }
+
+        Component.onCompleted: {
+            playlistModel.transactionPendingChanged.connect(playlistModel.onBusynessChanged)
+            playlistModel.loadingChanged.connect(playlistModel.onBusynessChanged)
+            playlistModel.onBusynessChanged()
         }
     }
 
@@ -158,7 +174,7 @@ MainViewLoader {
             drop.accepted = true
             return item.getSelectedInputItem().then(inputItems => {
                 if (index === undefined)
-                    DialogsProvider.playlistsDialog(inputItems)
+                    DialogsProvider.playlistsDialog(inputItems, (root.model as MLPlaylistListModel).playlistType)
                 else
                     root.model.append(root.model.getItemId(index), inputItems)
             })
@@ -168,13 +184,30 @@ MainViewLoader {
             for (let url in drop.urls)
                 urlList.push(drop.urls[url])
             if (index === undefined)
-                DialogsProvider.playlistsDialog(inputItems)
+                DialogsProvider.playlistsDialog(inputItems, (root.model as MLPlaylistListModel).playlistType)
             else
                 root.model.append(root.model.getItemId(index), urlList)
         } else {
             drop.accepted = false
         }
         return Promise.resolve()
+    }
+
+    function deleteSelectedPlaylists() {
+        console.assert(root.model)
+        console.assert(root.selectionModel)
+        if (root.selectionModel.hasSelection) {
+            const items = []
+            for (const i of root.selectionModel.selectedIndexes) {
+                items.push(root.model.data(i, MLPlaylistListModel.PLAYLIST_ID))
+            }
+            console.assert(items.length > 0)
+            if (DialogsProvider.questionDialog(qsTr("Do you really want to delete the selected playlist(s)?"),
+                                               qsTr("Delete playlist(s)")))
+                root.model.deletePlaylists(items)
+        } else {
+            console.warn(root, ": Nothing to delete")
+        }
     }
 
     //---------------------------------------------------------------------------------------------
@@ -203,7 +236,7 @@ MainViewLoader {
 
         z: 99
 
-        text: qsTr("Processing...")
+        text: root.model?.transactionPending ? qsTr("Processing...") : ""
 
         Timer {
             id: visibilityTimer
@@ -242,6 +275,10 @@ MainViewLoader {
         function tableView_popup(index, selectedIndexes, globalPos) {
             popup(selectedIndexes, globalPos)
         }
+
+        Component.onCompleted: {
+            contextMenu.requestDeleteSelectedPlaylists.connect(root.deleteSelectedPlaylists)
+        }
     }
 
     // TBD: Refactor this with MusicGenres ?
@@ -262,6 +299,9 @@ MainViewLoader {
             selectionModel: root.selectionModel
 
             headerDelegate: root.header
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
 
             Navigation.parentItem: root
 
@@ -326,12 +366,6 @@ MainViewLoader {
                         })
                     }
                 }
-
-                Component.onCompleted: {
-                    // Qt Quick Button sets a cursor for itself, unset it so that if the view has
-                    // busy cursor, it is visible over the delegate:
-                    MainCtx.unsetCursor(this)
-                }
             }
 
             //-------------------------------------------------------------------------------------
@@ -358,7 +392,7 @@ MainViewLoader {
     Component {
         id: table
 
-        MainTableView {
+        Widgets.TableViewExt {
             id: tableView
 
             //-------------------------------------------------------------------------------------
@@ -420,13 +454,19 @@ MainViewLoader {
 
             rowContextMenu: contextMenu
 
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
+            fadingEdge.enableBeginningFade: root.enableBeginningFade
+            fadingEdge.enableEndFade: root.enableEndFade
+
             listView.isDropAcceptableFunc: function(drag, index) {
                 root._adjustDragAccepted(drag)
                 return drag.accepted
             }
 
             listView.acceptDropFunc: function(index, drop) {
-                return root._dropAction(drop, listView.itemContainsDrag.index)
+                return root._dropAction(drop, listView.itemContainsDrag?.index)
             }
 
             listView.dropIndicator: null
@@ -485,7 +525,7 @@ MainViewLoader {
             focus: true
 
             text: qsTr("No playlists found")
-            hint: qsTr("Right click on a media to add it to a playlist")
+            hint: qsTr("Right click on a media\nto add it to a playlist")
 
             cover: VLCStyle.noArtAlbumCover
         }

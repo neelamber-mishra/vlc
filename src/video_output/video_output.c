@@ -302,10 +302,11 @@ void vout_DisplayTitle(vout_thread_t *vout, const char *title)
                  VLC_TICK_FROM_MS(sys->title.timeout), title);
 }
 
-void vout_FilterMouse(vout_thread_t *vout, vlc_mouse_t *mouse)
+bool vout_FilterMouse(vout_thread_t *vout, vlc_mouse_t *mouse)
 {
     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
     vlc_mouse_t tmp[2], *m = mouse;
+    bool event_consumed = false;
 
     /* Pass mouse events through the filter chains. */
     vlc_mutex_lock(&sys->filter.lock);
@@ -314,18 +315,20 @@ void vout_FilterMouse(vout_thread_t *vout, vlc_mouse_t *mouse)
         if (!filter_chain_MouseFilter(sys->filter.chain_interactive,
                                       &tmp[0], m))
             m = &tmp[0];
+        else
+            event_consumed = true;
         if (!filter_chain_MouseFilter(sys->filter.chain_static,
                                       &tmp[1], m))
             m = &tmp[1];
-
-        bool has_mouse_filter = filter_chain_HasMouseFilter(sys->filter.chain_interactive) ||
-                                filter_chain_HasMouseFilter(sys->filter.chain_static);
-        vlc_mouse_SetMouseFilter(m, has_mouse_filter);
+        else
+            event_consumed = true;
     }
     vlc_mutex_unlock(&sys->filter.lock);
 
     if (mouse != m)
         *mouse = *m;
+
+    return event_consumed;
 }
 
 void vout_PutSubpicture( vout_thread_t *vout, subpicture_t *subpic )
@@ -2316,9 +2319,9 @@ static void vout_InitSource(vout_thread_sys_t *vout)
 {
     char *psz_ar = var_InheritString(&vout->obj, "aspect-ratio");
     if (psz_ar) {
-        unsigned num, den;
-        if (GetAspectRatio(psz_ar, &num, &den))
-            vout_SetAspectRatio(vout, num, den);
+        vlc_rational_t ar;
+        if (GetAspectRatio(psz_ar, &ar))
+            vout_SetAspectRatio(vout, ar.num, ar.den);
         free(psz_ar);
     }
 

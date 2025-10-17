@@ -24,39 +24,35 @@
 #define QVLC_PLAYLISTS_H_ 1
 
 // VLC includes
+#include "medialibrary/mlplaylistlistmodel.hpp"
 #include <widgets/native/qvlcframe.hpp>
 
 // Forward declarations
-class MLPlaylistListModel;
 class QTreeView;
 class QLineEdit;
 class QLabel;
 class QPushButton;
 
-class PlaylistsDialog : public QVLCFrame
+class PlaylistsDialog : public QVLCDialog
 {
     Q_OBJECT
 
 public: // Ctor / dtor
-    PlaylistsDialog(qt_intf_t *);
+    explicit PlaylistsDialog(qt_intf_t *_p_intf,
+                             const QVariantList & media,
+                             MLPlaylistListModel::PlaylistType type = MLPlaylistListModel::PLAYLIST_TYPE_ALL,
+                             QWindow *parent = nullptr);
 
-    ~PlaylistsDialog() override;
+    ~PlaylistsDialog();
 
-public: // Interface
-    Q_INVOKABLE void setMedias(const QVariantList & medias);
-
-protected: // Events
-    void hideEvent(QHideEvent * event) override;
-
-    void keyPressEvent(QKeyEvent * event) override;
+public slots:
+    void accept() override;
 
 private slots:
     void onClicked      ();
     void onDoubleClicked();
 
     void onTextEdited();
-
-    void onAccepted();
 
 private:
     QVariantList m_ids;

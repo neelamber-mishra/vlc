@@ -103,13 +103,13 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
     value = CFDictionaryGetValue(poolAttr, kCVPixelBufferWidthKey);
     if (!value || CFGetTypeID(value) != CFNumberGetTypeID()
         || !CFNumberGetValue(value, kCFNumberIntType, &poolWidth)
-        || poolWidth != bufferWidth) 
+        || poolWidth != bufferWidth)
     {
         return NO;
     }
 
     value = CFDictionaryGetValue(poolAttr, kCVPixelBufferHeightKey);
-    if (!value || CFGetTypeID(value) != CFNumberGetTypeID() 
+    if (!value || CFGetTypeID(value) != CFNumberGetTypeID()
         || !CFNumberGetValue(value, kCFNumberIntType, &poolHeigth)
         || poolHeigth != bufferHeight)
     {
@@ -131,12 +131,8 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
         uint32_t srcHeight = CVPixelBufferGetHeight(pixelBuffer);
         uint32_t dstWidth = rotated ? srcHeight : srcWidth;
         uint32_t dstHeight = rotated ? srcWidth : srcHeight;
-#if defined(TARGET_OS_VISION) && TARGET_OS_VISION
-        const int numValues = 5;
-#else
-        const int numValues = 6;
-#endif
-        CFTypeRef keys[numValues] = {
+
+        CFTypeRef keys[] = {
             kCVPixelBufferPixelFormatTypeKey,
             kCVPixelBufferWidthKey,
             kCVPixelBufferHeightKey,
@@ -149,7 +145,7 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
 #endif
         };
 
-        CFTypeRef values[numValues] = {
+        CFTypeRef values[] = {
             (__bridge CFNumberRef)(@(CVPixelBufferGetPixelFormatType(pixelBuffer))),
             (__bridge CFNumberRef)(@(dstWidth)),
             (__bridge CFNumberRef)(@(dstHeight)),
@@ -159,8 +155,10 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
             kCFBooleanTrue
 #endif
         };
+        _Static_assert(ARRAY_SIZE(keys) == ARRAY_SIZE(values),
+            "Mismatch between keys and values array sizes");
 
-        CFDictionaryRef poolAttr = CFDictionaryCreate(NULL, keys, values, numValues, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFDictionaryRef poolAttr = CFDictionaryCreate(NULL, keys, values, ARRAY_SIZE(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
         OSStatus status = CVPixelBufferPoolCreate(NULL, NULL, poolAttr, &_rotationPool);
         CFRelease(poolAttr);
@@ -396,7 +394,7 @@ API_AVAILABLE(ios(16.0), tvos(16.0), macosx(13.0))
     CIImage *image = [[CIImage alloc] initWithCVPixelBuffer:pixelBuffer];
     image = [image imageByApplyingOrientation:_orientation];
     [_rotationContext render:image toCVPixelBuffer:rotated];
-    
+
     return rotated;
 }
 
@@ -683,10 +681,10 @@ shouldInheritContentsScale:(CGFloat)newScale
     self = [super init];
     if (!self)
         return nil;
-    
+
     if (vd->cfg->window->type != VLC_WINDOW_TYPE_NSOBJECT)
         return nil;
-    
+
     VLCView *window = (__bridge VLCView *)vd->cfg->window->handle.nsobject;
     if (!window) {
         msg_Err(vd, "No window found!");
@@ -698,14 +696,14 @@ shouldInheritContentsScale:(CGFloat)newScale
     _pipcontroller = CreatePipController(vd, (__bridge void *)self);
 
     _vd = vd;
-    
+
     return self;
 }
 
 - (void)preparePictureInPicture {
     if ( !_pipcontroller)
         return;
-    
+
     if ( _pipcontroller->ops->set_display_layer ) {
         _pipcontroller->ops->set_display_layer(
             _pipcontroller,
@@ -728,8 +726,8 @@ shouldInheritContentsScale:(CGFloat)newScale
         VLCSampleBufferDisplayView *displayView;
         VLCSampleBufferSubpictureView *spuView;
         VLCView *window = sys.window;
-        
-        displayView = 
+
+        displayView =
             [[VLCSampleBufferDisplayView alloc] initWithVoutDisplay:sys.vd];
         spuView = [VLCSampleBufferSubpictureView new];
         [window addSubview:displayView];
@@ -831,7 +829,7 @@ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
         msg_Err(vd, "No pixelBuffer ref attached to pic!");
         return;
     }
-    
+
     if (vd->fmt->orientation != ORIENT_NORMAL) {
         CVPixelBufferRef rotated = [sys.rotationContext rotate:pixelBuffer];
         if (rotated) {
@@ -839,7 +837,7 @@ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
             pixelBuffer = rotated;
         }
     }
-    
+
     id aspectRatio = @{
         (__bridge NSString*)kCVImageBufferPixelAspectRatioHorizontalSpacingKey:
             @(vd->source->i_sar_num),
@@ -1044,6 +1042,7 @@ static void Prepare (vout_display_t *vd, picture_t *pic,
 
 static void Display(vout_display_t *vd, picture_t *pic)
 {
+    // kept as the core is not properly pacing the calls to Prepare without this callback
 }
 
 static int Control (vout_display_t *vd, int query)
@@ -1053,7 +1052,6 @@ static int Control (vout_display_t *vd, int query)
 
     switch (query)
     {
-        case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
@@ -1140,7 +1138,7 @@ static int Open (vout_display_t *vd,
     }
 
     @autoreleasepool {
-        VLCSampleBufferDisplay *sys = 
+        VLCSampleBufferDisplay *sys =
             [[VLCSampleBufferDisplay alloc] initWithVoutDisplay:vd];
 
         if (sys == nil) {
@@ -1159,7 +1157,7 @@ static int Open (vout_display_t *vd,
             .control = Control,
             .update_format = UpdateFormat,
         };
-        
+
         vd->ops = &ops;
 
         static const vlc_fourcc_t subfmts[] = {

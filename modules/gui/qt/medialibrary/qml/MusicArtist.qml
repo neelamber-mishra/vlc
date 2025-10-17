@@ -36,6 +36,13 @@ FocusScope {
     readonly property int _contentLeftMargin: VLCStyle.layout_left_margin + _extraMargin
     readonly property int _contentRightMargin: VLCStyle.layout_right_margin + _extraMargin
 
+    property int displayMarginBeginning: 0
+    property int displayMarginEnd: 0
+
+    // Currently only respected by the list view:
+    property bool enableBeginningFade: true
+    property bool enableEndFade: true
+
     //the index to "go to" when the view is loaded
     property int initialIndex: 0
 
@@ -162,6 +169,9 @@ FocusScope {
                         topMargin: VLCStyle.gridItemSelectedBorder
                         bottomMargin: VLCStyle.gridItemSelectedBorder
 
+                        displayMarginBeginning: root._contentLeftMargin
+                        displayMarginEnd: root._contentRightMargin
+
                         focus: true
 
                         model: albumModel
@@ -205,6 +215,8 @@ FocusScope {
 
                             image: model.cover || ""
                             fallbackImage: VLCStyle.noArtAlbumCover
+
+                            fillMode: Image.PreserveAspectCrop
 
                             title: model.title || qsTr("Unknown title")
                             subtitle: model.release_year || ""
@@ -382,7 +394,7 @@ FocusScope {
         defaultCover: VLCStyle.noArtAlbumCover
     }
 
-    MLAlbumTrackModel {
+    MLAudioModel {
         id: trackModel
 
         ml: MediaLib
@@ -415,6 +427,9 @@ FocusScope {
             headerDelegate: root.header
             selectionModel: albumSelectionModel
             model: albumModel
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
 
             Connections {
                 target: albumModel
@@ -506,7 +521,7 @@ FocusScope {
     Component {
         id: tableComponent
 
-        MainTableView {
+        Widgets.TableViewExt {
             id: tableView_id
 
             model: trackModel
@@ -518,6 +533,12 @@ FocusScope {
             header: root.header
             headerPositioning: ListView.InlineHeader
             rowHeight: VLCStyle.tableCoverRow_height
+
+            displayMarginBeginning: root.displayMarginBeginning
+            displayMarginEnd: root.displayMarginEnd
+
+            fadingEdge.enableBeginningFade: root.enableBeginningFade
+            fadingEdge.enableEndFade: root.enableEndFade
 
             property var _modelSmall: [{
                 weight: 1,

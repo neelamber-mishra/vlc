@@ -784,6 +784,9 @@ int SetupVideoES( demux_t *p_demux, const mp4_track_t *p_track, const MP4_Box_t 
                                BOXDATA(p_strf)->i_extra,
                                p_fmt );
             }
+            /* Mostly bogus muxs with old codecs
+             * see 71c4cc66456facb59cd0eef1626be1be1befeb39 */
+            p_cfg->b_ignore_implicit_pts = true;
             break;
         }
 
@@ -967,6 +970,35 @@ int SetupAudioES( demux_t *p_demux, const mp4_track_t *p_track,
                     memcpy( p_extra, p_dfLa->data.p_binary->p_blob, p_dfLa->data.p_binary->i_blob);
                     memcpy( p_extra, "fLaC", 4 );
                     p_fmt->i_codec = VLC_CODEC_FLAC;
+                }
+            }
+            break;
+        }
+        case ATOM_Opus:
+        {
+            const MP4_Box_t *p_dOps = MP4_BoxGet(  p_sample, "dOps" );
+            if( p_dOps && p_dOps->data.p_binary->i_blob > 10 )
+            {
+                size_t i_src = p_dOps->data.p_binary->i_blob;
+                const uint8_t *p_src = p_dOps->data.p_binary->p_blob;
+                if(p_src[0] != 0x00 || (SIZE_MAX - p_dOps->data.p_binary->i_blob < 26))
+                    break;
+                size_t i_dst = 2 + 8 + p_dOps->data.p_binary->i_blob + 8 + 8;
+                uint8_t *p_dst = malloc(i_dst);
+                if( likely( p_dst ) )
+                {
+                    p_dst[0] = 0x01;
+                    p_dst[1] = 8 + i_src;
+                    memcpy(&p_dst[2], "OpusHead", 8);
+                    memcpy(&p_dst[10], p_src, i_src);
+                    p_dst[10] = 0x01; // set version != ISOBMFF mapping
+                    SetWLE(&p_dst[12], GetWBE(&p_dst[12])); // swap endianness for PreSkip
+                    SetDWLE(&p_dst[14], GetDWBE(&p_dst[14])); // swap endianness for InputSampleRate
+                    SetWLE(&p_dst[18], GetWBE(&p_dst[18])); // swap endianness for OutputGain
+                    memcpy(&p_dst[10 + i_src], "OpusTags\x00\x00\x00\x00\x00\x00\x00", 16);
+                    p_fmt->i_extra = i_dst;
+                    p_fmt->p_extra = p_dst;
+                    p_fmt->i_codec = VLC_CODEC_OPUS;
                 }
             }
             break;
@@ -1229,10 +1261,11 @@ int SetupAudioES( demux_t *p_demux, const mp4_track_t *p_track,
         {
             const unsigned i_bps = aout_BitsPerSample( p_fmt->i_codec );
             /* Uncompressed audio */
-            if( i_bps && aout_CheckChannelReorder( p_rg_chans_order, NULL,
-                                                   i_vlc_mapping,
-                                                   p_cfg->rgi_chans_reordering ) )
-                p_cfg->b_chans_reorder = true;
+            if( i_bps )
+                 p_cfg->i_chans_to_reorder =
+                    aout_CheckChannelReorder( p_rg_chans_order, NULL,
+                                              i_vlc_mapping,
+                                              p_cfg->rgi_chans_reordering );
 
             /* we can only set bitmap for VLC mapping or [re]mapped pcm audio
              * as vlc can't enumerate channels for compressed content */

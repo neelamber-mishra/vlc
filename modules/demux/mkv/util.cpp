@@ -206,11 +206,11 @@ void handle_real_audio(demux_t * p_demux, mkv_track_t * p_tk, block_t * p_blk, v
             if( i_index >= p_sys->i_subpackets )
                 return;
 
-            block_t *p_block = block_Alloc( p_sys->i_subpacket_size );
-            if( !p_block )
+            if( size < p_sys->i_subpacket_size )
                 return;
 
-            if( size < p_sys->i_subpacket_size )
+            block_t *p_block = block_Alloc( p_sys->i_subpacket_size );
+            if( !p_block )
                 return;
 
             memcpy( p_block->p_buffer, p_frame, p_sys->i_subpacket_size );
@@ -357,7 +357,7 @@ void send_Block( demux_t * p_demux, mkv_track_t * p_tk, block_t * p_block, unsig
     if( p_tk->fmt.i_cat == AUDIO_ES && p_tk->i_chans_to_reorder )
     {
         aout_ChannelReorder( p_block->p_buffer, p_block->i_buffer,
-                             p_tk->fmt.audio.i_channels,
+                             p_tk->i_chans_to_reorder,
                              p_tk->pi_chan_table, p_tk->fmt.i_codec );
     }
 

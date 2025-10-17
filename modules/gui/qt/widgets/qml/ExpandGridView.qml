@@ -60,6 +60,7 @@ FocusScope {
     property int horizontalSpacing: VLCStyle.column_spacing
     property int verticalSpacing: VLCStyle.column_spacing
 
+    property int displayMarginBeginning: 0
     property int displayMarginEnd: 0
 
     required property int nbItemPerRow
@@ -136,6 +137,7 @@ FocusScope {
     property alias contentWidth: flickable.contentWidth
     property alias contentX: flickable.contentX
     property alias gridScrollBar: flickableScrollBar
+    property alias interactive: flickable.interactive
 
     property alias expandDelegate: expandItemLoader.sourceComponent
     readonly property Item expandItem: expandItemLoader.item
@@ -164,7 +166,8 @@ FocusScope {
     }
 
     contentHeight: {
-        const size = getItemPos(_count - 1)[1] + rowHeight + _expandItemVerticalSpace
+        // the trailing row spacing should not be accounted when calculating the content height:
+        const size = getItemPos(_count - 1)[1] + rowHeight + _expandItemVerticalSpace - verticalSpacing
 
         // NOTE: topMargin and headerHeight are included in root.getItemPos.
         if (footerItem)
@@ -506,6 +509,12 @@ FocusScope {
     //use the same signature as Gridview.positionViewAtIndex(index, PositionMode mode)
     //mode is ignored at the moment
     function positionViewAtIndex(index, mode) {
+        // FIXME: Ideally this check should not be necessary, but without it the view
+        //        goes out of bounds. If the content height is smaller than the view-
+        //        port, then positioning is meaningless.
+        if (flickable.contentHeight <= flickable.height)
+            return
+
         if (flickable.width === 0 || flickable.height === 0
             ||
             index < 0 || index >= _count)
@@ -651,6 +660,8 @@ FocusScope {
         item.z = _indexToZ(id)
         item.visible = true
 
+        item.GridView.reused()
+
         _setItem(id, item)
 
         return item
@@ -783,6 +794,9 @@ FocusScope {
         flickableDirection: Flickable.AutoFlickIfNeeded
 
         boundsBehavior: Flickable.StopAtBounds
+
+        pixelAligned: (MainCtx.qtVersion() >= MainCtx.qtVersionCheck(6, 2, 5)) // QTBUG-103996
+                      && (Screen.pixelDensity >= VLCStyle.highPixelDensityThreshold) // no need for sub-pixel alignment with high pixel density
 
         ScrollBar.vertical: ScrollBarExt {
             id: flickableScrollBar
@@ -970,6 +984,7 @@ FocusScope {
                     if (_shouldDelayRemove(item)) {
                         _delayRemove(i, item)
                     } else if (root.reuseItems) {
+                        item.GridView.pooled()
                         item.visible = false
                         root._unusedItemList.push(item)
                     } else {

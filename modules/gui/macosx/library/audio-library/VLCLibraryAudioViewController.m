@@ -181,7 +181,6 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
 - (void)setupAudioTableViews
 {
     _audioLibrarySplitView.delegate = _splitViewDelegate;
-    [_splitViewDelegate resetDefaultSplitForSplitView:self.audioLibrarySplitView];
 
     _audioCollectionSelectionTableView.dataSource = _audioDataSource;
     _audioCollectionSelectionTableView.delegate = _audioLibraryTableViewDelegate;
@@ -200,7 +199,6 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
 - (void)setupGridModeSplitView
 {
     _audioLibraryGridModeSplitView.delegate = _splitViewDelegate;
-    [_splitViewDelegate resetDefaultSplitForSplitView:self.audioLibraryGridModeSplitView];
 
     _audioLibraryGridModeSplitViewListTableView.dataSource = _audioDataSource;
     _audioLibraryGridModeSplitViewListTableView.delegate = _audioLibraryTableViewDelegate;
@@ -246,10 +244,10 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
 
     _placeholderImageNames = @[@"placeholder-group2", @"placeholder-music", @"placeholder-music", @"placeholder-music"];
     _placeholderLabelStrings = @[
-        _NS("Your favorite artists will appear here.\nGo to the Browse section to add artists you love."),
-        _NS("Your favorite albums will appear here.\nGo to the Browse section to add albums you love."),
-        _NS("Your favorite tracks will appear here.\nGo to the Browse section to add tracks you love."),
-        _NS("Your favorite genres will appear here.\nGo to the Browse section to add genres you love."),
+        _NS("Your music artists will appear here.\nGo to the Browse section to add artists you love."),
+        _NS("Your music albums will appear here.\nGo to the Browse section to add albums you love."),
+        _NS("Your music tracks will appear here.\nGo to the Browse section to add tracks you love."),
+        _NS("Your music genres will appear here.\nGo to the Browse section to add genres you love."),
     ];
 }
 
@@ -279,6 +277,14 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
     _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.automaticallyAdjustsContentInsets = NO;
     _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.contentInsets = audioScrollViewContentInsets;
     _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.scrollerInsets = audioScrollViewScrollerInsets;
+
+    // Songs table view needs bottom padding for controls bar
+    const CGFloat controlsBarHeight = VLCLibraryUIUnits.libraryWindowControlsBarHeight;
+    const CGFloat controlsBarPadding = VLCLibraryUIUnits.largeSpacing * 2;
+    NSClipView * const clipView = _audioSongTableViewScrollView.contentView;
+    const CGFloat topInset = self.libraryWindow.titlebarHeight + self.audioSongTableView.headerView.frame.size.height;
+    clipView.automaticallyAdjustsContentInsets = NO;
+    clipView.contentInsets = NSEdgeInsetsMake(topInset, 0, controlsBarHeight + controlsBarPadding, 0);
 }
 
 #pragma mark - Superclass property overrides
@@ -331,6 +337,7 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
         _audioCollectionViewScrollView.hidden = NO;
     } else {
         _audioLibraryGridModeSplitView.hidden = NO;
+        [_splitViewDelegate resetDefaultSplitForSplitView:self.audioLibraryGridModeSplitView];
     }
 }
 
@@ -340,6 +347,7 @@ NSString *VLCLibraryPlaceholderAudioViewIdentifier = @"VLCLibraryPlaceholderAudi
         _audioSongTableViewScrollView.hidden = NO;
     } else {
         _audioLibrarySplitView.hidden = NO;
+        [_splitViewDelegate resetDefaultSplitForSplitView:self.audioLibrarySplitView];
     }
 }
 

@@ -20,17 +20,20 @@
 #ifndef SOURCESTREAM_HPP
 #define SOURCESTREAM_HPP
 
+#include "../tools/Macros.hpp"
+
 #include <vlc_common.h>
 #include <vlc_block_helper.h>
 
 namespace adaptive
 {
-    class AbstractSource;
+    class BlockStreamInterface;
 
     class AbstractSourceStream
     {
+        PREREQ_INTERFACE(AbstractSourceStream);
+
         public:
-            virtual ~AbstractSourceStream() {}
             virtual stream_t *makeStream() = 0;
             virtual void Reset() = 0;
             virtual size_t Peek(const uint8_t **, size_t) = 0;
@@ -38,8 +41,10 @@ namespace adaptive
 
     class AbstractChunksSourceStream : public AbstractSourceStream
     {
+        PREREQ_VIRTUAL(AbstractChunksSourceStream);
+
         public:
-            AbstractChunksSourceStream(vlc_object_t *, AbstractSource *);
+            AbstractChunksSourceStream(vlc_object_t *, BlockStreamInterface *);
             virtual ~AbstractChunksSourceStream();
             void Reset() override;
             stream_t *makeStream() override;
@@ -49,7 +54,7 @@ namespace adaptive
             virtual int     Seek(uint64_t) = 0;
             bool b_eof;
             vlc_object_t *p_obj;
-            AbstractSource *source;
+            BlockStreamInterface *source;
 
         private:
             static ssize_t read_Callback(stream_t *, void *, size_t);
@@ -61,7 +66,7 @@ namespace adaptive
     class ChunksSourceStream : public AbstractChunksSourceStream
     {
         public:
-            ChunksSourceStream(vlc_object_t *, AbstractSource *);
+            ChunksSourceStream(vlc_object_t *, BlockStreamInterface *);
             virtual ~ChunksSourceStream();
             void Reset() override;
 
@@ -77,7 +82,7 @@ namespace adaptive
     class BufferedChunksSourceStream : public AbstractChunksSourceStream
     {
         public:
-            BufferedChunksSourceStream(vlc_object_t *, AbstractSource *);
+            BufferedChunksSourceStream(vlc_object_t *, BlockStreamInterface *);
             virtual ~BufferedChunksSourceStream();
             void Reset() override;
 

@@ -35,6 +35,8 @@
 
 #import "library/audio-library/VLCLibraryAudioViewController.h"
 
+#import "library/favorites-library/VLCLibraryFavoritesViewController.h"
+
 #import "library/groups-library/VLCLibraryGroupsViewController.h"
 
 #import "library/home-library/VLCLibraryHomeViewController.h"
@@ -69,7 +71,10 @@ NSArray<NSString *> *defaultBookmarkedLocations()
 
     for (VLCMediaSource * const mediaSource in localMediaSources) {
         VLCInputNode * const rootNode = mediaSource.rootNode;
-        [mediaSource preparseInputNodeWithinTree:rootNode];
+        NSError * const error = [mediaSource preparseInputNodeWithinTree:rootNode];
+        if (error)
+            continue;
+        
 
         if (rootNode.children != nil) {
             for (VLCInputNode * const node in rootNode.children) {
@@ -160,10 +165,85 @@ NSArray<NSString *> *defaultBookmarkedLocations()
 
 @end
 
+// MARK: - VLCLibraryFavoritesSegment
+
+@interface VLCLibraryFavoritesSegment : VLCLibrarySegment
+@end
+
+@implementation VLCLibraryFavoritesSegment
+
+- (instancetype)init
+{
+    self = [super initWithSegmentType:VLCLibraryFavoritesSegmentType];
+    if (self) {
+        self.internalDisplayString = _NS("Favorites");
+        if (@available(macOS 11.0, *)) {
+            self.internalDisplayImage = [NSImage imageWithSystemSymbolName:@"heart"
+                                                  accessibilityDescription:@"Favorites icon"];
+        } else {
+            self.internalDisplayImage = [NSImage imageNamed:@"bw-home"];
+            self.internalDisplayImage.template = YES;
+        }
+        self.internalLibraryViewControllerClass = VLCLibraryFavoritesViewController.class;
+        self.internalLibraryViewControllerCreator = ^{
+            return [[VLCLibraryFavoritesViewController alloc] initWithLibraryWindow:VLCMain.sharedInstance.libraryWindow];
+        };
+        self.internalLibraryViewPresenter = ^(VLCLibraryAbstractSegmentViewController * const controller) {
+            [(VLCLibraryFavoritesViewController *)controller presentFavoritesView];
+        };
+        self.internalSaveViewModePreference = ^(const NSInteger viewMode) {
+            VLCLibraryWindowPersistentPreferences.sharedInstance.favoritesLibraryViewMode = viewMode;
+        };
+        self.internalGetViewModePreference = ^{
+            return VLCLibraryWindowPersistentPreferences.sharedInstance.favoritesLibraryViewMode;
+        };
+        self.internalToolbarDisplayFlags = standardLibraryViewToolbarDisplayFlags;
+    }
+    return self;
+}
+
+@end
 
 // MARK: - Video library view segments
 
 @interface VLCLibraryVideoShowsSubSegment : VLCLibrarySegment
+@end
+
+@interface VLCLibraryVideoMoviesSubSegment : VLCLibrarySegment
+@end
+
+@implementation VLCLibraryVideoMoviesSubSegment
+
+- (instancetype)init
+{
+    self = [super initWithSegmentType:VLCLibraryMoviesVideoSubSegmentType];
+    if (self) {
+        self.internalDisplayString = _NS("Movies");
+        if (@available(macOS 11.0, *)) {
+            self.internalDisplayImage = [NSImage imageWithSystemSymbolName:@"film"
+                                                  accessibilityDescription:@"Movies icon"];
+        } else {
+            self.internalDisplayImage = [NSImage imageNamed:@"sidebar-movie"];
+            self.internalDisplayImage.template = YES;
+        }
+        self.internalLibraryViewControllerClass = VLCLibraryVideoViewController.class;
+        self.internalLibraryViewControllerCreator = ^{
+            return [[VLCLibraryVideoViewController alloc] initWithLibraryWindow:VLCMain.sharedInstance.libraryWindow];
+        };
+        self.internalLibraryViewPresenter = ^(VLCLibraryAbstractSegmentViewController * const controller) {
+            [(VLCLibraryVideoViewController *)controller presentMoviesView];
+        };
+        self.internalSaveViewModePreference = ^(const NSInteger viewMode) {
+            VLCLibraryWindowPersistentPreferences.sharedInstance.moviesLibraryViewMode = viewMode;
+        };
+        self.internalGetViewModePreference = ^{
+            return VLCLibraryWindowPersistentPreferences.sharedInstance.moviesLibraryViewMode;
+        };
+        self.internalToolbarDisplayFlags = standardLibraryViewToolbarDisplayFlags;
+    }
+    return self;
+}
+
 @end
 
 @implementation VLCLibraryVideoShowsSubSegment
@@ -232,7 +312,10 @@ NSArray<NSString *> *defaultBookmarkedLocations()
             return VLCLibraryWindowPersistentPreferences.sharedInstance.videoLibraryViewMode;
         };
         self.internalToolbarDisplayFlags = standardLibraryViewToolbarDisplayFlags;
-        self.internalChildNodes = @[[[VLCLibraryVideoShowsSubSegment alloc] init]];
+        self.internalChildNodes = @[
+            [[VLCLibraryVideoShowsSubSegment alloc] init],
+            [[VLCLibraryVideoMoviesSubSegment alloc] init]
+        ];
     }
     return self;
 }
@@ -812,6 +895,7 @@ NSArray<NSString *> *defaultBookmarkedLocations()
     return @[
         [[VLCLibraryHomeSegment alloc] init],
         [[VLCLibraryHeaderSegment alloc] initWithDisplayString:_NS("Library")],
+        [[VLCLibraryFavoritesSegment alloc] init],
         [[VLCLibraryVideoSegment alloc] init],
         [[VLCLibraryMusicSegment alloc] init],
         [[VLCLibraryPlaylistSegment alloc] init],
@@ -827,10 +911,14 @@ NSArray<NSString *> *defaultBookmarkedLocations()
     switch (segmentType) {
         case VLCLibraryHomeSegmentType:
             return [[VLCLibraryHomeSegment alloc] init];
+        case VLCLibraryFavoritesSegmentType:
+            return [[VLCLibraryFavoritesSegment alloc] init];
         case VLCLibraryVideoSegmentType:
             return [[VLCLibraryVideoSegment alloc] init];
         case VLCLibraryShowsVideoSubSegmentType:
             return [[VLCLibraryVideoShowsSubSegment alloc] init];
+        case VLCLibraryMoviesVideoSubSegmentType:
+            return [[VLCLibraryVideoMoviesSubSegment alloc] init];
         case VLCLibraryMusicSegmentType:
             return [[VLCLibraryMusicSegment alloc] init];
         case VLCLibraryArtistsMusicSubSegmentType:
@@ -877,6 +965,8 @@ NSArray<NSString *> *defaultBookmarkedLocations()
     } else if (validMediaItem && mediaItem.mediaType == VLC_ML_MEDIA_TYPE_VIDEO) {
         if (mediaItem.mediaSubType == VLC_ML_MEDIA_SUBTYPE_SHOW_EPISODE) {
             return [VLCLibrarySegment segmentWithSegmentType:VLCLibraryShowsVideoSubSegmentType];
+        } else if (mediaItem.mediaSubType == VLC_ML_MEDIA_SUBTYPE_MOVIE) {
+            return [VLCLibrarySegment segmentWithSegmentType:VLCLibraryMoviesVideoSubSegmentType];
         }
         return [VLCLibrarySegment segmentWithSegmentType:VLCLibraryVideoSegmentType];
     }

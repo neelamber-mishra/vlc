@@ -92,6 +92,8 @@ void appendMediaIntoPlaylist(vlc_medialibrary_t* ml, int64_t playlistId, const s
         MLItemId createdPlaylistId;
     };
 
+    setTransactionPending(true);
+
     m_mediaLib->runOnMLThread<Ctx>(this,
     //ML thread
     [name](vlc_medialibrary_t* ml, Ctx& ctx)
@@ -104,6 +106,8 @@ void appendMediaIntoPlaylist(vlc_medialibrary_t* ml, int64_t playlistId, const s
         }
     },
     [this, initialItems](quint64, const Ctx& ctx) {
+        endTransaction(); // this is intentionally called here and not after `append()`
+
         if (ctx.createdPlaylistId.id)
         {
             append(ctx.createdPlaylistId, initialItems);
@@ -479,8 +483,12 @@ static inline vlc_ml_playlist_type_t qmlToMLPlaylistType(MLPlaylistListModel::Pl
     case MLPlaylistListModel::PlaylistType::PLAYLIST_TYPE_ALL:
         return VLC_ML_PLAYLIST_TYPE_ALL;
     case MLPlaylistListModel::PlaylistType::PLAYLIST_TYPE_AUDIO:
-        return VLC_ML_PLAYLIST_TYPE_AUDIO_ONLY;
+        return VLC_ML_PLAYLIST_TYPE_AUDIO;
     case MLPlaylistListModel::PlaylistType::PLAYLIST_TYPE_VIDEO:
+        return VLC_ML_PLAYLIST_TYPE_VIDEO;
+    case MLPlaylistListModel::PlaylistType::PLAYLIST_TYPE_AUDIO_ONLY:
+        return VLC_ML_PLAYLIST_TYPE_AUDIO_ONLY;
+    case MLPlaylistListModel::PlaylistType::PLAYLIST_TYPE_VIDEO_ONLY:
         return VLC_ML_PLAYLIST_TYPE_VIDEO_ONLY;
     default:
         vlc_assert_unreachable();

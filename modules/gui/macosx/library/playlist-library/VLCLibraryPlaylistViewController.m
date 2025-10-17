@@ -32,6 +32,7 @@
 #import "library/VLCLibraryModel.h"
 #import "library/VLCLibraryTableCellView.h"
 #import "library/VLCLibraryTableView.h"
+#import "library/VLCLibraryTwoPaneSplitViewDelegate.h"
 #import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
 #import "library/VLCLibraryWindowPersistentPreferences.h"
@@ -61,6 +62,7 @@
 
     if (self) {
         _dataSource = [[VLCLibraryPlaylistDataSource alloc] init];
+        _splitViewDelegate = [[VLCLibraryTwoPaneSplitViewDelegate alloc] init];
 
         [self setupPlaylistCollectionView];
         [self setupPlaylistTableView];
@@ -72,7 +74,7 @@
                                    name:VLCLibraryModelPlaylistAdded
                                  object:nil];
         [notificationCenter addObserver:self
-                               selector:@selector(libraryModelUpdated:)
+                               selector:@selector(libraryModelPlaylistDeleted:)
                                    name:VLCLibraryModelPlaylistDeleted
                                  object:nil];
 
@@ -159,7 +161,7 @@
 
     self.listViewSplitView.vertical = YES;
     self.listViewSplitView.dividerStyle = NSSplitViewDividerStyleThin;
-    self.listViewSplitView.delegate = self;
+    self.listViewSplitView.delegate = self.splitViewDelegate;
     [self.listViewSplitView addArrangedSubview:self.masterTableViewScrollView];
     [self.listViewSplitView addArrangedSubview:self.detailTableViewScrollView];
 
@@ -231,19 +233,19 @@
     switch (playlistType) {
         case VLC_ML_PLAYLIST_TYPE_ALL:
             placeholderPlaylistsString =
-                _NS("Your favorite playlists will appear here.\n"
+                _NS("Your playlists will appear here.\n"
                     "Go to the Browse section to add playlists you love.");
             break;
         case VLC_ML_PLAYLIST_TYPE_AUDIO:
         case VLC_ML_PLAYLIST_TYPE_AUDIO_ONLY:
             placeholderPlaylistsString =
-                _NS("Your favorite music playlists will appear here.\n"
+                _NS("Your music playlists will appear here.\n"
                     "Go to the Browse section to add playlists you love.");
             break;
         case VLC_ML_PLAYLIST_TYPE_VIDEO:
         case VLC_ML_PLAYLIST_TYPE_VIDEO_ONLY:
             placeholderPlaylistsString =
-                _NS("Your favorite video playlists will appear here.\n"
+                _NS("Your video playlists will appear here.\n"
                     "Go to the Browse section to add playlists you love.");
             break;
     }
@@ -263,6 +265,7 @@
         viewToPresent = self.collectionViewScrollView;
     } else {
         viewToPresent = self.listViewSplitView;
+        [self.splitViewDelegate resetDefaultSplitForSplitView:self.listViewSplitView];
     }
     NSParameterAssert(viewToPresent != nil);
     [self.libraryWindow displayLibraryView:viewToPresent];
@@ -294,9 +297,7 @@
 
 - (void)libraryModelUpdated:(NSNotification *)notification
 {
-    NSParameterAssert(notification);
-    VLCLibraryModel * const model = (VLCLibraryModel *)notification.object;
-    NSAssert(model, @"Notification object should be a VLCLibraryModel");
+    VLCLibraryModel * const model = VLCMain.sharedInstance.libraryController.libraryModel;
     const vlc_ml_playlist_type_t playlistType = self.dataSource.playlistType;
     const size_t numberOfPlaylists = [model numberOfPlaylistsOfType:playlistType];
 
@@ -305,6 +306,15 @@
          (numberOfPlaylists > 0 && ![self.libraryWindow.libraryTargetView.subviews containsObject:_collectionViewScrollView])) &&
         self.libraryWindow.videoViewController.view.hidden) {
 
+        [self updatePresentedView];
+    }
+}
+
+- (void)libraryModelPlaylistDeleted:(NSNotification *)notification
+{
+    NSParameterAssert(notification);
+    if (self.libraryWindow.librarySegmentType == VLCLibraryPlaylistsSegmentType &&
+        self.libraryWindow.videoViewController.view.hidden) {
         [self updatePresentedView];
     }
 }
@@ -323,19 +333,6 @@
         [self.dataSource connect];
     }
     [self.libraryWindow hideLoadingOverlay];
-}
-
-#pragma mark - NSSplitViewDelegate
-
-- (CGFloat)splitView:(NSSplitView *)splitView 
-constrainMinCoordinate:(CGFloat)proposedMinimumPosition
-         ofSubviewAt:(NSInteger)dividerIndex
-{
-    if (dividerIndex == 0) {
-        return VLCLibraryUIUnits.librarySplitViewSelectionViewDefaultWidth;
-    } else {
-        return VLCLibraryUIUnits.librarySplitViewMainViewMinimumWidth;
-    }
 }
 
 @end

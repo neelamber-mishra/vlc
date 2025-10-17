@@ -36,7 +36,7 @@ static const QMap<QString, QString> predefinedSubst = {
     {COLOR_ACCENT_KEY, "#FF8800"},
 };
 
-QPair<QByteArray, std::optional<QColor>> colorizeSvg(const QString &filename, const QList<QPair<QString, QString> > &replacements)
+QPair<QByteArray, QColor> colorizeSvg(const QString &filename, const QList<QPair<QString, QString> > &replacements)
 {
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly))
@@ -49,7 +49,7 @@ QPair<QByteArray, std::optional<QColor>> colorizeSvg(const QString &filename, co
     //we pass by QString because we want to perform case incensite replacements
     QString dataStr = QString::fromUtf8(data);
 
-    std::optional<QColor> backgroundColor;
+    QColor backgroundColor;
 
     for (const auto& replacePair: replacements)
     {
@@ -147,8 +147,8 @@ public:
                     if (!scaledSize.isEmpty())
                         svgHandler->setOption(QImageIOHandler::ScaledSize, scaledSize);
 
-                    if (data.second.has_value())
-                        svgHandler->setOption(QImageIOHandler::BackgroundColor, *data.second);
+                    if (data.second.isValid())
+                        svgHandler->setOption(QImageIOHandler::BackgroundColor, data.second);
 
                     svgHandler->read(&image);
                 }
@@ -251,7 +251,7 @@ QQuickImageResponse* SVGColorImageImageProvider::requestImageResponse(const QStr
 }
 
 
-SVGColorImageBuilder::SVGColorImageBuilder(QString path, QObject* parent)
+SVGColorImageBuilder::SVGColorImageBuilder(const QString &path, QObject* parent)
     : QObject(parent)
 {
     m_query.addQueryItem(PATH_KEY, path);
@@ -308,7 +308,7 @@ SVGColorImage::SVGColorImage(QObject* parent)
     : QObject(parent)
 {}
 
-SVGColorImageBuilder* SVGColorImage::colorize(QString path)
+SVGColorImageBuilder* SVGColorImage::colorize(const QString &path)
 {
     SVGColorImageBuilder* builder = new SVGColorImageBuilder(path);
     QQmlEngine::setObjectOwnership(builder, QQmlEngine::JavaScriptOwnership);

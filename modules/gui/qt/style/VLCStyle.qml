@@ -47,6 +47,8 @@ QtObject {
         ctx: MainCtx
     }
 
+    readonly property real highPixelDensityThreshold: 5.9 // 150 dpi (dpmm)
+
     // Sizes
     readonly property double margin_xxxsmall: MainCtx.dp(2, scale);
     readonly property double margin_xxsmall: MainCtx.dp(4, scale);
@@ -304,9 +306,6 @@ QtObject {
     readonly property url noArtArtistCover: "qrc:///placeholder/noart_artistCover.svg";
     readonly property url noArtVideoCover: "qrc:///placeholder/noart_videoCover.svg";
 
-    // Play shadow
-    readonly property url playShadow: "qrc:///misc/play_shadow.png";
-
     // New indicator
     readonly property url newIndicator: "qrc:///misc/new_indicator.svg";
 
@@ -319,7 +318,7 @@ QtObject {
     readonly property int controlLayoutHeightPinned: MainCtx.dp(32, scale)
 
     // Scroll bar (size means width or height, depending on the orientation):
-    readonly property real scrollBarInteractingSize: MainCtx.dp(5, scale)
+    readonly property real scrollBarInteractingSize: MainCtx.dp(8, scale)
     readonly property real scrollBarNonInteractingSize: MainCtx.dp(2, scale)
 
     function dp(size, scale) {

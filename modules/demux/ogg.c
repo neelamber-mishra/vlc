@@ -1394,7 +1394,7 @@ static void Ogg_DecodePacket( demux_t *p_demux,
         }
 
         /* Backup the ogg packet (likely an header packet) */
-        if( !b_xiph )
+        if( !b_xiph && p_stream->i_headers )
         {
             uint8_t *p_realloc = realloc( p_stream->p_headers, p_stream->i_headers + p_oggpacket->bytes );
             if( p_realloc )
@@ -2709,7 +2709,6 @@ static bool Ogg_ReadTheoraHeader( logical_stream_t *p_stream,
     bs_t bitstream;
     unsigned int i_fps_numerator;
     unsigned int i_fps_denominator;
-    int i_keyframe_frequency_force;
     int i_major;
     int i_minor;
     int i_subminor;
@@ -2748,16 +2747,8 @@ static bool Ogg_ReadTheoraHeader( logical_stream_t *p_stream,
     p_stream->fmt.i_bitrate = bs_read( &bitstream, 24 );
     bs_skip( &bitstream, 6 ); /* quality */
 
-    i_keyframe_frequency_force = 1 << bs_read( &bitstream, 5 );
-
     /* granule_shift = i_log( frequency_force -1 ) */
-    p_stream->i_granule_shift = 0;
-    i_keyframe_frequency_force--;
-    while( i_keyframe_frequency_force )
-    {
-        p_stream->i_granule_shift++;
-        i_keyframe_frequency_force >>= 1;
-    }
+    p_stream->i_granule_shift = bs_read( &bitstream, 5 );
 
     i_version = i_major * 1000000 + i_minor * 1000 + i_subminor;
     p_stream->i_first_frame_index = (i_version >= 3002001) ? 1 : 0;
@@ -2774,8 +2765,7 @@ static bool Ogg_ReadDaalaHeader( logical_stream_t *p_stream,
     oggpack_buffer opb;
     uint32_t i_timebase_numerator;
     uint32_t i_timebase_denominator;
-    int keyframe_granule_shift;
-    unsigned int i_keyframe_frequency_force;
+    int i_keyframe_granule_shift;
     uint8_t i_major;
     uint8_t i_minor;
     uint8_t i_subminor;
@@ -2809,18 +2799,12 @@ static bool Ogg_ReadDaalaHeader( logical_stream_t *p_stream,
 
     oggpack_adv( &opb, 32 ); /* frame duration */
 
-    keyframe_granule_shift = oggpack_read( &opb, 8 );
-    keyframe_granule_shift = __MIN(keyframe_granule_shift, 31);
-    i_keyframe_frequency_force = 1u << keyframe_granule_shift;
-
     /* granule_shift = i_log( frequency_force -1 ) */
-    p_stream->i_granule_shift = 0;
-    i_keyframe_frequency_force--;
-    while( i_keyframe_frequency_force )
-    {
-        p_stream->i_granule_shift++;
-        i_keyframe_frequency_force >>= 1;
-    }
+    i_keyframe_granule_shift = oggpack_read( &opb, 8 );
+    if ( i_keyframe_granule_shift < 0 || i_keyframe_granule_shift > 31 )
+        return false;
+
+    p_stream->i_granule_shift = i_keyframe_granule_shift;
 
     i_version = i_major * 1000000 + i_minor * 1000 + i_subminor;
     VLC_UNUSED(i_version);
@@ -3628,9 +3612,6 @@ static bool Ogg_ReadOggSpotsHeader( logical_stream_t *p_stream,
         i_granulerate_numerator   = 30;
         i_granulerate_denominator = 1;
     }
-
-    if ( !i_granulerate_numerator || !i_granulerate_denominator )
-        return false;
 
     /* Normalize granulerate */
     vlc_ureduce(&p_stream->fmt.video.i_frame_rate,

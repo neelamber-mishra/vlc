@@ -70,8 +70,9 @@ GotoTimeDialog::GotoTimeDialog( qt_intf_t *_p_intf)
 
     mainLayout->addWidget( buttonBox, 1, 0, 1, 3 );
 
-    BUTTONACT( gotoButton, &GotoTimeDialog::close );
-    BUTTONACT( cancelButton, &GotoTimeDialog::cancel );
+    connect( buttonBox, &QDialogButtonBox::accepted, this, &GotoTimeDialog::accept );
+    connect( buttonBox, &QDialogButtonBox::rejected, this, &GotoTimeDialog::reject );
+
     BUTTONACT( resetButton, &GotoTimeDialog::reset );
 
     QVLCTools::restoreWidgetPosition( p_intf, "gototimedialog", this );
@@ -87,28 +88,29 @@ void GotoTimeDialog::toggleVisible()
     reset();
     if ( !isVisible() && THEMIM->hasInput() )
     {
-        vlc_tick_t i_time = THEMIM->getTime();
-        timeEdit->setTime( timeEdit->time().addSecs( SEC_FROM_VLC_TICK(i_time) ) );
+        VLCTime time = THEMIM->getTime();
+        timeEdit->setTime( timeEdit->time().addSecs( time.toSeconds() ) );
     }
     QVLCDialog::toggleVisible();
     if(isVisible())
         activateWindow();
 }
 
-void GotoTimeDialog::cancel()
+void GotoTimeDialog::reject()
 {
     reset();
-    toggleVisible();
+    QVLCDialog::reject();
 }
 
-void GotoTimeDialog::close()
+void GotoTimeDialog::accept()
 {
     if ( THEMIM->hasInput() )
     {
         int i_time = QTime( 0, 0, 0 ).msecsTo( timeEdit->time() );
         THEMIM->setTime( VLC_TICK_FROM_MS(i_time) );
     }
-    toggleVisible();
+
+    QVLCDialog::accept();
 }
 
 void GotoTimeDialog::reset()

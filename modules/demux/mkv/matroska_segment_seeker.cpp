@@ -437,7 +437,7 @@ SegmentSeeker::mark_range_as_searched( Range data )
             merged.push_back( *it );
         }
 
-        _ranges_searched = merged;
+        _ranges_searched = std::move(merged);
     }
 }
 
@@ -491,11 +491,16 @@ SegmentSeeker::mkv_jump_to( matroska_segment_c& ms, fptr_t fpos )
         while( ms.cluster == NULL || (
               ms.cluster->IsFiniteSize() && ms.cluster->GetEndPosition() < fpos ) )
         {
-            if( !( ms.cluster = static_cast<KaxCluster*>( ms.ep.Get() ) ) )
+            EbmlElement *el = ms.ep.Get();
+            if( el == nullptr )
             {
                 msg_Err( &ms.sys.demuxer, "unable to read KaxCluster during seek, giving up" );
                 return;
             }
+            if (!MKV_IS_ID( el, KaxCluster ))
+                continue; // look for the next element
+
+            ms.cluster = static_cast<KaxCluster*>( el );
 
             i_cluster_pos = ms.cluster->GetElementPosition();
 
@@ -516,16 +521,22 @@ SegmentSeeker::mkv_jump_to( matroska_segment_c& ms, fptr_t fpos )
 
     while( EbmlElement * el = ms.ep.Get() )
     {
-        if( MKV_CHECKED_PTR_DECL( p_tc, KaxClusterTimestamp, el ) )
-        {
-            p_tc->ReadData( ms.es.I_O(), SCOPE_ALL_DATA );
-            ms.cluster->InitTimestamp( static_cast<uint64_t>( *p_tc ), ms.i_timescale );
-            add_cluster(ms.cluster);
-            break;
+        try {
+            if( MKV_CHECKED_PTR_DECL( p_tc, KaxClusterTimestamp, el ) )
+            {
+                p_tc->ReadData( ms.es.I_O(), SCOPE_ALL_DATA );
+                ms.cluster->InitTimestamp( static_cast<uint64_t>( *p_tc ), ms.i_timescale );
+                add_cluster(ms.cluster);
+                break;
+            }
+            else if( MKV_CHECKED_PTR_DECL( crc, EbmlCrc32, el ) )
+            {
+                crc->ReadData( ms.es.I_O(), SCOPE_ALL_DATA ); /* avoid a skip that may fail */
+            }
         }
-        else if( MKV_CHECKED_PTR_DECL( crc, EbmlCrc32, el ) )
+        catch(...)
         {
-            crc->ReadData( ms.es.I_O(), SCOPE_ALL_DATA ); /* avoid a skip that may fail */
+            msg_Err( &ms.sys.demuxer,"Error while reading %s",  EBML_NAME(el) );
         }
     }
 

@@ -426,12 +426,15 @@ Item {
     Repeater {
         id: coverRepeater
 
-        model: dragItem._covers
+        readonly property var _model: dragItem._covers
 
-        property int notReadyCount: count
+        property int notReadyCount
 
-        onModelChanged: {
-            notReadyCount = count
+        on_ModelChanged: {
+            // Repeater signals model and count change after it reloads the items.
+            // So we need to adjust the ready count before that:
+            notReadyCount = _model.length
+            model = _model
         }
 
         onNotReadyCountChanged: {
@@ -450,53 +453,79 @@ Item {
             width: dragItem.coverSize
             height: dragItem.coverSize
 
-            Rectangle {
-                id: bg
-
-                radius: coverRepeater.count > 1 ? dragItem.coverSize : 0.0
-                anchors.fill: parent
-                color: theme.bg.primary
-
-                DefaultShadow {
-                    anchors.centerIn: parent
-
-                    sourceItem: bg
-                }
-            }
-
             Widgets.ImageExt {
                 id: artworkCover
 
                 anchors.centerIn: parent
                 width: coverSize
                 height: coverSize
-                radius: bg.radius
+                radius: coverRepeater.count > 1 ? dragItem.coverSize : 0.0
                 source: modelData.artwork ?? ""
                 sourceSize: dragItem.imageSourceSize ?? Qt.size(width * eDPR, height * eDPR)
+                backgroundColor: theme.bg.primary
+                borderWidth: VLCStyle.dp(1, VLCStyle.scale)
+                borderColor: theme.border
                 fillMode: Image.PreserveAspectCrop
 
-                readonly property real eDPR: MainCtx.effectiveDevicePixelRatio(Window.window)
+                // FIXME: Qt bug, asynchronous + texture provider + custom shader does not work properly with `grabToImage()`:
+                asynchronous: false
 
-                onStatusChanged: {
-                    if (status === Image.Ready)
+                readonly property real eDPR: MainCtx.effectiveDevicePixelRatio(Window.window)
+                property bool _triggerReadiness: false
+
+                on_TriggerReadinessChanged: {
+                    // If it was already true (readiness already signalled), do not decrease the counter.
+                    // This handler is only called when the property changes.
+                    if (_triggerReadiness) {
                         coverRepeater.notReadyCount -= 1
-                    else if (status === Image.Error) {
-                        const fallbackSource = modelData.fallback ?? defaultCover
-                        if (source === fallbackSource)
-                            coverRepeater.notReadyCount -= 1
-                        else
-                            source = fallbackSource
                     }
                 }
-            }
 
-            Rectangle {
-                // for cover border
-                color: "transparent"
-                border.width: VLCStyle.dp(1, VLCStyle.scale)
-                border.color: theme.border
-                anchors.fill: parent
-                radius: bg.radius
+                readonly property var _combinedStatus: [status, shaderStatus]
+
+                on_CombinedStatusChanged: {
+                    // Qt `ShaderEffect` documentation states:
+                    // > When runtime compilation is not in use and the shader properties
+                    // > refer to files with bytecode, the status is always Compiled.
+                    // However this is not correct, the status is reported to be "uncompiled" initially.
+                    // And sometimes the status remains "uncompiled" even when the shader is in use, for
+                    // that reason I only care about `ShaderEffect.Error` here and not `Compiled`.
+
+                    if (shaderStatus === ShaderEffect.Error) {
+                        _triggerReadiness = true // Not much to do in this case, shader could not be loaded.
+                        return
+                    }
+
+                    if (status === Image.Error) {
+                        const fallbackSource = modelData.fallback ?? defaultCover
+                        if (source === fallbackSource) {
+                            _triggerReadiness = true // Not much to do in this case either, fallback image could not be loaded.
+                        } else {
+                            source = fallbackSource
+                        }
+                    } else if (status === Image.Ready /* && shaderStatus === ShaderEffect.Compiled */) {
+                        // FIXME: When Qt starts to report `ShaderEffect.Compiled` properly, start using it.
+                        _triggerReadiness = true // Only in this case the image is loaded and shown.
+                    }
+                }
+
+                DefaultShadow {
+
+                }
+
+                // FIXME: Qt bug (observed 6.2 and 6.8): The image does not get rendered without this.
+                Rectangle {
+                    z: -1
+
+                    anchors.centerIn: parent
+
+                    width: 1
+                    height: 1
+
+                    opacity: 0.01
+
+                    color: "black"
+                }
             }
         }
     }
@@ -527,9 +556,7 @@ Item {
         }
 
         DefaultShadow {
-            anchors.centerIn: parent
 
-            sourceItem: extraCovers
         }
     }
 

@@ -148,7 +148,7 @@ static int Demux( demux_t *p_demux )
     const uint8_t *p_peek;
     int         i_size;
     block_t     *p_frame;
-    int64_t     i_pts;
+    ts_90khz_t  i_pts;
     int         i_skip;
 
     if( vlc_stream_Peek( p_demux->s, &p_peek, 8 ) < 8 )
@@ -190,7 +190,7 @@ static int Demux( demux_t *p_demux )
             p_sys->i_vc = p_peek[3];
 
             /* read the PTS and potential extra bytes TODO: make it a bit more optimised */
-            i_pts = -1;
+            i_pts = TS_90KHZ_INVALID;
             i_skip = 8;
             if( p_peek[5]&0x10 )
             {
@@ -233,7 +233,7 @@ static int Demux( demux_t *p_demux )
             {
                 p_frame->p_buffer += i_skip;
                 p_frame->i_buffer -= i_skip;
-                if( i_pts >= 0 )
+                if( i_pts != TS_90KHZ_INVALID )
                     p_frame->i_pts = FROM_SCALE(i_pts);
                 block_ChainAppend( &p_sys->p_es, p_frame );
             }
@@ -396,19 +396,19 @@ static void ParsePES( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t     *p_pes = p_sys->p_pes;
-    uint8_t     hdr[30];
+    uint8_t     hdr[20];
 
     unsigned    i_skip;
-    stime_t     i_dts = -1;
-    stime_t     i_pts = -1;
+    ts_90khz_t  i_dts;
+    ts_90khz_t  i_pts;
 
     p_sys->p_pes = NULL;
 
     /* FIXME find real max size */
-    block_ChainExtract( p_pes, hdr, 30 );
+    size_t hdr_read = block_ChainExtract( p_pes, hdr, ARRAY_SIZE(hdr) );
 
     /* See §2.4.3.6 of ISO 13818-1 */
-    if( hdr[0] != 0 || hdr[1] != 0 || hdr[2] != 1 )
+    if( hdr_read < 9 || hdr[0] != 0 || hdr[1] != 0 || hdr[2] != 1 )
     {
         msg_Warn( p_demux, "invalid hdr [0x%2.2x:%2.2x:%2.2x:%2.2x]",
                   hdr[0], hdr[1],hdr[2],hdr[3] );
@@ -420,15 +420,6 @@ static void ParsePES( demux_t *p_demux )
 
     /* we assume mpeg2 PES */
     i_skip = hdr[8] + 9;
-    if( hdr[7]&0x80 )    /* has pts */
-    {
-        i_pts = GetPESTimestamp( &hdr[9] );
-
-        if( hdr[7]&0x40 )    /* has dts */
-        {
-             i_dts = GetPESTimestamp( &hdr[14] );
-        }
-    }
 
     p_pes = block_ChainGather( p_pes );
     if( unlikely(p_pes == NULL) )
@@ -442,10 +433,17 @@ static void ParsePES( demux_t *p_demux )
     p_pes->i_buffer -= i_skip;
     p_pes->p_buffer += i_skip;
 
-    if( i_dts >= 0 )
-        p_pes->i_dts = FROM_SCALE(i_dts);
-    if( i_pts >= 0 )
+    if( hdr[7]&0x80 && hdr_read >= (9+1+5) )    /* has pts */
+    {
+        i_pts = GetPESTimestamp( &hdr[9] );
         p_pes->i_pts = FROM_SCALE(i_pts);
+
+        if( hdr[7]&0x40 && hdr_read >= (14+1+5) )    /* has dts */
+        {
+            i_dts = GetPESTimestamp( &hdr[14] );
+            p_pes->i_dts = FROM_SCALE(i_dts);
+        }
+    }
 
     /* Set PCR */
     if( p_pes->i_pts != VLC_TICK_INVALID )

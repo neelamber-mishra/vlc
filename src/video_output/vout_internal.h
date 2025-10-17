@@ -32,6 +32,14 @@ typedef struct vlc_spu_highlight_t vlc_spu_highlight_t;
 
 ///< Use the aspect ratio from the source video format
 #define VLC_DAR_FROM_SOURCE  ((vlc_rational_t){0, 0})
+///< Use the whole display area to show the video
+#define VLC_DAR_FILL_DISPLAY ((vlc_rational_t){1, 0})
+
+#define VLC_DAR_IS_FROM_SOURCE(r) \
+    ((r).num == VLC_DAR_FROM_SOURCE.num && (r).den == VLC_DAR_FROM_SOURCE.den)
+
+#define VLC_DAR_IS_FILL_DISPLAY(r) \
+    ((r).num == VLC_DAR_FILL_DISPLAY.num && (r).den == VLC_DAR_FILL_DISPLAY.den)
 
 /**
  * Vout configuration
@@ -142,7 +150,7 @@ static inline bool vout_CropEqual(const struct vout_crop *a,
 }
 
 bool vout_ParseCrop(struct vout_crop *, const char *crop_str);
-bool GetAspectRatio(const char *ar_str, unsigned *num, unsigned *den);
+bool GetAspectRatio(const char *ar_str, vlc_rational_t *ar);
 
 /* TODO to move them to vlc_vout.h */
 void vout_ChangeFullscreen(vout_thread_t *, const char *id);
@@ -166,7 +174,12 @@ void vout_ChangeProjection(vout_thread_t *, video_projection_mode_t projection);
 void vout_ToggleProjection(vout_thread_t *, bool enabled);
 void vout_ResetProjection(vout_thread_t *);
 
-void vout_FilterMouse(vout_thread_t *vout, vlc_mouse_t *mouse);
+/**
+ * Passes mouse events through the video filter chains and updates the mouse state.
+ *
+ * \return true if any filter in the chain consumed the mouse event, false otherwise.
+ */
+bool vout_FilterMouse(vout_thread_t *vout, vlc_mouse_t *mouse);
 
 /* */
 void vout_CreateVars( vout_thread_t * );

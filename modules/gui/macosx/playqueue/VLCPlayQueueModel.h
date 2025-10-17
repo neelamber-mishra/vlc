@@ -32,15 +32,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readwrite, assign) VLCPlayQueueController *playQueueController;
 @property (readonly) NSUInteger numberOfPlayQueueItems;
+@property (readonly) NSArray<VLCPlayQueueItem *> *playQueueItems;
 
 - (void)dropExistingData;
 - (VLCPlayQueueItem *)playQueueItemAtIndex:(NSInteger)index;
-- (void)addItems:(NSArray *)array;
-- (void)addItems:(NSArray *)array atIndex:(size_t)index count:(size_t)count;
+- (void)addItems:(NSArray<VLCPlayQueueItem *> *)array;
+- (void)addItems:(NSArray<VLCPlayQueueItem *> *)array atIndex:(size_t)index count:(size_t)count;
 - (void)moveItemAtIndex:(size_t)index toTarget:(size_t)target;
 - (void)removeItemsInRange:(NSRange)range;
 - (void)updateItemAtIndex:(size_t)index;
-
+- (void)replaceItemAtIndex:(size_t)index withItem:(VLCPlayQueueItem *)newItem;
 @end
 
 NS_ASSUME_NONNULL_END

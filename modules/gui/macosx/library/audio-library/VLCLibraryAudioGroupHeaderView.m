@@ -24,6 +24,7 @@
 
 #import "extensions/NSColor+VLCAdditions.h"
 #import "extensions/NSString+Helpers.h"
+#import "extensions/NSView+VLCAdditions.h"
 
 #import "main/VLCMain.h"
 
@@ -34,6 +35,14 @@
 
 NSString * const VLCLibraryAudioGroupHeaderViewIdentifier = @"VLCLibraryAudioGroupHeaderViewIdentifier";
 
+@interface VLCLibraryAudioGroupHeaderView ()
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+@property NSGlassEffectView *glassBackgroundView API_AVAILABLE(macos(26.0));
+#endif
+
+@end
+
 @implementation VLCLibraryAudioGroupHeaderView
 
 + (CGSize)defaultHeaderSize
@@ -43,18 +52,36 @@ NSString * const VLCLibraryAudioGroupHeaderViewIdentifier = @"VLCLibraryAudioGro
 
 - (void)awakeFromNib
 {
-    if (@available(macOS 10.14, *)) {
-        _playButton.bezelColor = NSColor.VLCAccentColor;
-        [NSApplication.sharedApplication addObserver:self
-                                          forKeyPath:@"effectiveAppearance"
-                                             options:NSKeyValueObservingOptionNew
-                                             context:nil];
-    }
+    [super awakeFromNib];
 
-    self.backgroundEffectView.wantsLayer = YES;
-    self.backgroundEffectView.layer.cornerRadius = VLCLibraryUIUnits.smallSpacing;
-    self.backgroundEffectView.layer.borderWidth = VLCLibraryUIUnits.borderThickness;
-    [self updateColoredAppearance:self.effectiveAppearance];
+    if (@available(macOS 10.14, *))
+        _playButton.bezelColor = NSColor.VLCAccentColor;
+
+    if (@available(macOS 26.0, *)) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+        self.glassBackgroundView = [[NSGlassEffectView alloc] initWithFrame:self.backgroundEffectView.frame];
+        self.glassBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
+
+        [self addSubview:self.glassBackgroundView
+              positioned:NSWindowBelow
+              relativeTo:self.backgroundEffectView];
+        [self.glassBackgroundView applyConstraintsToFillSuperview];
+        [self.backgroundEffectView removeFromSuperview];
+        [self.stackView removeFromSuperview];
+        self.glassBackgroundView.contentView = self.stackView;
+#endif
+    } else {
+        if (@available(macOS 10.14, *)) {
+            [NSApplication.sharedApplication addObserver:self
+                                            forKeyPath:@"effectiveAppearance"
+                                                options:NSKeyValueObservingOptionNew
+                                                context:nil];
+        }
+        self.backgroundEffectView.wantsLayer = YES;
+        self.backgroundEffectView.layer.cornerRadius = VLCLibraryUIUnits.smallSpacing;
+        self.backgroundEffectView.layer.borderWidth = VLCLibraryUIUnits.borderThickness;
+        [self updateColoredAppearance:self.effectiveAppearance];
+    }
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath
@@ -62,7 +89,9 @@ NSString * const VLCLibraryAudioGroupHeaderViewIdentifier = @"VLCLibraryAudioGro
                         change:(NSDictionary<NSKeyValueChangeKey,id> *)change
                        context:(void *)context
 {
-    if ([keyPath isEqualToString:@"effectiveAppearance"]) {
+    if (@available(macOS 26.0, *)) {
+        return;
+    } else if ([keyPath isEqualToString:@"effectiveAppearance"]) {
         NSAppearance * const effectiveAppearance = change[NSKeyValueChangeNewKey];
         [self updateColoredAppearance:effectiveAppearance];
     }
@@ -70,6 +99,9 @@ NSString * const VLCLibraryAudioGroupHeaderViewIdentifier = @"VLCLibraryAudioGro
 
 - (void)updateColoredAppearance:(NSAppearance *)appearance
 {
+    if (@available(macOS 26.0, *))
+        return;
+
     NSParameterAssert(appearance);
     BOOL isDark = NO;
     if (@available(macOS 10.14, *)) {

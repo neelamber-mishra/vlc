@@ -363,6 +363,7 @@ DiscOpenPanel::DiscOpenPanel( QWidget *_parent, qt_intf_t *_p_intf ) :
 
     /* CONNECTs */
     BUTTONACT( ui.dvdRadioButton,     &DiscOpenPanel::updateButtons );
+    BUTTONACT( ui.dvdaRadioButton,    &DiscOpenPanel::updateButtons );
     BUTTONACT( ui.bdRadioButton,      &DiscOpenPanel::updateButtons );
     BUTTONACT( ui.vcdRadioButton,     &DiscOpenPanel::updateButtons );
     BUTTONACT( ui.audioCDRadioButton, &DiscOpenPanel::updateButtons );
@@ -517,6 +518,19 @@ void DiscOpenPanel::updateButtons()
         ui.diskOptionBox_2->show();
         ui.dvdsimple->setEnabled( true );
     }
+    else if ( ui.dvdaRadioButton->isChecked() )
+    {
+        if( m_discType != Dvda )
+        {
+            setDrive( psz_dvddiscpath );
+            m_discType = Dvda;
+        }
+        ui.titleLabel->setText( qtr("Title") );
+        ui.chapterLabel->show();
+        ui.chapterSpin->show();
+        ui.diskOptionBox_2->hide();
+        ui.dvdsimple->setEnabled( false );
+    }
     else if ( ui.bdRadioButton->isChecked() )
     {
         if( m_discType != BRD )
@@ -583,7 +597,9 @@ void DiscOpenPanel::updateMRL()
             scheme = "dvd";
         else
             scheme = "dvdsimple";
-    } else if ( ui.bdRadioButton->isChecked() )
+    } else if ( ui.dvdaRadioButton->isChecked() )
+        scheme = "dvda";
+    else if ( ui.bdRadioButton->isChecked() )
         scheme = "bluray";
     /* VCD */
     else if ( ui.vcdRadioButton->isChecked() )
@@ -599,7 +615,7 @@ void DiscOpenPanel::updateMRL()
     /* Title/chapter encoded in MRL */
     QString anchor = "";
     if( ui.titleSpin->value() > 0 ) {
-        if( ui.dvdRadioButton->isChecked() || ui.bdRadioButton->isChecked() ) {
+        if( ui.dvdRadioButton->isChecked() || ui.bdRadioButton->isChecked() || ui.dvdaRadioButton->isChecked() ) {
             anchor = QString("#%1").arg( ui.titleSpin->value() );
             if ( ui.chapterSpin->value() > 0 )
                 anchor += QString(":%1").arg( ui.chapterSpin->value() );
@@ -616,7 +632,7 @@ void DiscOpenPanel::updateMRL()
     QString opts = "";
 
     /* Input item options */
-    if ( ui.dvdRadioButton->isChecked() || ui.vcdRadioButton->isChecked() )
+    if ( ui.dvdRadioButton->isChecked() || ui.vcdRadioButton->isChecked())
     {
         if ( ui.audioSpin->value() >= 0 )
             opts += " :audio-track=" +
@@ -646,8 +662,9 @@ void DiscOpenPanel::browseDevice()
             QFileDialog::ShowDirsOnly, schemes ).toLocalFile();
     if( !dir.isEmpty() )
     {
-        ui.deviceCombo->addItem( toNativeSepNoSlash( dir ) );
-        ui.deviceCombo->setCurrentIndex( ui.deviceCombo->findText( toNativeSepNoSlash( dir ) ) );
+        const QString dirNoSlash = toNativeSepNoSlash( std::move(dir) );
+        ui.deviceCombo->addItem( dirNoSlash );
+        ui.deviceCombo->setCurrentIndex( ui.deviceCombo->findText( dirNoSlash ) );
     }
 
     updateMRL();
@@ -1429,7 +1446,7 @@ void CaptureOpenPanel::advancedDialog()
                     break;
             }
         }
-        advMRL = tempMRL;
+        advMRL = std::move(tempMRL);
         updateMRL();
     }
     qDeleteAll( controls );

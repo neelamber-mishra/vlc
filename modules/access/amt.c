@@ -58,6 +58,7 @@
 #include <vlc_block.h>
 #include <vlc_interrupt.h>
 #include <vlc_url.h>
+#include <vlc_rand.h>
 
 #ifdef HAVE_POLL_H
  #include <poll.h>
@@ -322,6 +323,9 @@ typedef struct _access_sys_t
 
     bool tryAMT;
 } access_sys_t;
+
+_Static_assert(sizeof((access_sys_t){0}.glob_ulNonce) == NONCE_LEN,
+    "glob_ulNonce doesn't match expected nonce length");
 
 /* Standard open/close functions */
 static int  Open (vlc_object_t *);
@@ -1218,13 +1222,11 @@ error:
 static void amt_send_relay_discovery_msg( stream_t *p_access, char *relay_ip )
 {
     char          chaSendBuffer[AMT_DISCO_MSG_LEN];
-    unsigned int  ulNonce;
     ssize_t       nRet;
     access_sys_t *sys = p_access->p_sys;
 
     /* initialize variables */
     memset( chaSendBuffer, 0, sizeof(chaSendBuffer) );
-    ulNonce = 0;
 
     /*
      * create AMT discovery message format
@@ -1239,10 +1241,8 @@ static void amt_send_relay_discovery_msg( stream_t *p_access, char *relay_ip )
     chaSendBuffer[3] = 0;
 
     /* create nonce and copy into send buffer */
-    srand( (unsigned int)time(NULL) );
-    ulNonce = htonl( rand() );
-    memcpy( &chaSendBuffer[4], &ulNonce, sizeof(ulNonce) );
-    sys->glob_ulNonce = ulNonce;
+    vlc_rand_bytes (&sys->glob_ulNonce, sizeof (sys->glob_ulNonce));
+    memcpy( &chaSendBuffer[4], &sys->glob_ulNonce, sizeof(sys->glob_ulNonce) );
 
     /* send it */
     nRet = sendto( sys->sAMT, chaSendBuffer, sizeof(chaSendBuffer), 0, &sys->relayDiscoAddr.sa, sys->relayDiscoAddr.sin.sin_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6));
@@ -1259,13 +1259,11 @@ static void amt_send_relay_discovery_msg( stream_t *p_access, char *relay_ip )
 static void amt_send_relay_request( stream_t *p_access, char *relay_ip )
 {
     char         chaSendBuffer[AMT_REQUEST_MSG_LEN];
-    uint32_t     ulNonce;
     int          nRet;
     access_sys_t *sys = p_access->p_sys;
 
     memset( chaSendBuffer, 0, sizeof(chaSendBuffer) );
 
-    ulNonce = 0;
     nRet = 0;
 
     /*
@@ -1295,8 +1293,7 @@ static void amt_send_relay_request( stream_t *p_access, char *relay_ip )
     chaSendBuffer[2] = 0;
     chaSendBuffer[3] = 0;
 
-    ulNonce = sys->glob_ulNonce;
-    memcpy( &chaSendBuffer[4], &ulNonce, sizeof(uint32_t) );
+    memcpy( &chaSendBuffer[4], &sys->glob_ulNonce, sizeof(sys->glob_ulNonce) );
 
     nRet = send( sys->sAMT, chaSendBuffer, sizeof(chaSendBuffer), 0 );
 
@@ -1404,7 +1401,6 @@ static int amt_send_mem_update( stream_t *p_access, bool leave)
     int           i_sendBufSize = i_amt_hdr_len + IP_HDR_IGMP_LEN;
     int           i_sendBufSizeIPv6 = i_amt_hdr_len + i_ipv6_hdr_len + MLD_REPORT_LEN;
     char          pSendBuffer[MAC_LEN + NONCE_LEN + AMT_HDR_LEN + IPv6_HOP_BY_HOP_OPTION_LEN + IPv6_FIXED_HDR_LEN + MLD_REPORT_LEN] = { 0 };
-    uint32_t      ulNonce = 0;
     access_sys_t *sys = p_access->p_sys;
 
     pSendBuffer[0] = AMT_MEM_UPD;
@@ -1413,8 +1409,7 @@ static int amt_send_mem_update( stream_t *p_access, bool leave)
     memcpy( &pSendBuffer[2], sys->relay_mem_query_msg.uchaMAC, MAC_LEN );
 
     /* copy nonce */
-    ulNonce = sys->glob_ulNonce;
-    memcpy( &pSendBuffer[8], &ulNonce, NONCE_LEN );
+    memcpy( &pSendBuffer[8], &sys->glob_ulNonce, sizeof(sys->glob_ulNonce) );
 
     if ( sys->mcastGroupAddr.sin.sin_family == AF_INET )
     {

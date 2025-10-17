@@ -111,7 +111,6 @@ src/network/getaddrinfo.c
 src/network/httpd.c
 src/network/io.c
 src/network/rootbind.c
-src/network/tcp.c
 src/network/tls.c
 src/network/udp.c
 src/player/osd.c
@@ -768,6 +767,9 @@ modules/gui/qt/medialibrary/mlvideogroupsmodel.cpp
 modules/gui/qt/medialibrary/mlvideogroupsmodel.hpp
 modules/gui/qt/medialibrary/qml/ArtistTopBanner.qml
 modules/gui/qt/medialibrary/qml/AudioGridItem.qml
+modules/gui/qt/medialibrary/qml/HomeDisplay.qml
+modules/gui/qt/medialibrary/qml/HomePage.qml
+modules/gui/qt/medialibrary/qml/MediaView.qml
 modules/gui/qt/medialibrary/qml/VideoGroupDisplay.qml
 modules/gui/qt/medialibrary/qml/MusicAlbums.qml
 modules/gui/qt/medialibrary/qml/MusicAlbumsDisplay.qml
@@ -791,8 +793,6 @@ modules/gui/qt/medialibrary/qml/VideoAll.qml
 modules/gui/qt/medialibrary/qml/VideoAllDisplay.qml
 modules/gui/qt/medialibrary/qml/VideoAllSubDisplay.qml
 modules/gui/qt/medialibrary/qml/VideoDisplay.qml
-modules/gui/qt/medialibrary/qml/VideoRecentVideos.qml
-modules/gui/qt/medialibrary/qml/VideoRecentVideosDisplay.qml
 modules/gui/qt/medialibrary/qml/VideoGridItem.qml
 modules/gui/qt/medialibrary/qml/VideoInfoExpandPanel.qml
 modules/gui/qt/medialibrary/qml/VideoListDisplay.qml

@@ -18,15 +18,15 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-	.option arch, +v
-	.text
-	.align	2
+#include "macros.S"
 
-	.globl	merge8_rvv
-	.type	merge8_rvv, %function
-merge8_rvv:
+	.option arch, +b, +v
+
+func	merge8_rvv
+	lpad	0
 	csrwi	vxrm, 0
-1:	vsetvli	t0, a3, e8, m8, ta, ma
+1:
+	vsetvli	t0, a3, e8, m8, ta, ma
 	vle8.v	v16, (a1)
 	add	a1, a1, t0
 	vle8.v	v24, (a2)
@@ -36,25 +36,25 @@ merge8_rvv:
 	vse8.v	v16, (a0)
 	add	a0, a0, t0
 	bnez	a3, 1b
-	ret
-	.size	merge8_rvv, . - merge8_rvv
 
-	.globl	merge16_rvv
-	.type	merge16_rvv, %function
-merge16_rvv:
+	ret
+endfunc
+
+func	merge16_rvv
+	lpad	0
 	csrwi	vxrm, 0
 	srli	a3, a3, 1
-1:	vsetvli	t0, a3, e16, m8, ta, ma
-	slli	t1, t0, 1
+1:
+	vsetvli	t0, a3, e16, m8, ta, ma
 	vle16.v	v16, (a1)
-	add	a1, a1, t1
+	sh1add	a1, t0, a1
 	vle16.v	v24, (a2)
-	add	a2, a2, t1
+	sh1add	a2, t0, a2
 	vaaddu.vv	v16, v16, v24
 	sub	a3, a3, t0
 	vse16.v	v16, (a0)
-	add	a0, a0, t1
+	sh1add	a0, t0, a0
 	bnez	a3, 1b
-	ret
-	.size	merge16_rvv, . - merge16_rvv
 
+	ret
+endfunc

@@ -154,6 +154,7 @@ void CompositorX11UISurface::setContent(QQmlComponent*,  QQuickItem* rootItem)
     assert(rootItem);
     m_rootItem = rootItem;
 
+    m_rootItem->setParent(m_uiWindow->contentItem()); // QQuickView also does this
     m_rootItem->setParentItem(m_uiWindow->contentItem());
 
     m_rootItem->setSize(size());
@@ -326,7 +327,29 @@ static void remapInputMethodQueryEvent(QObject *object, QInputMethodQueryEvent *
 
 bool CompositorX11UISurface::eventFilter(QObject*, QEvent *event)
 {
-    switch (event->type())
+    assert(event);
+    const auto type = event->type();
+    switch (type)
+    {
+    case QEvent::TouchBegin:
+    case QEvent::TouchCancel:
+    case QEvent::TouchEnd:
+    // case QEvent::TouchUpdate:
+    // case QEvent::MouseMove:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::MouseButtonRelease:
+    {
+        // FIXME: This is not nice, but offscreen window is not nice anyway and without it
+        //        popups do not close with press outside.
+        const auto overlay = m_uiWindow->property("_q_QQuickOverlay").value<QQuickItem*>();
+        if (overlay && overlay->isVisible())
+            QCoreApplication::sendEvent(overlay, event);
+    }
+    default: break;
+    }
+
+    switch (type)
     {
 
     case QEvent::Move:

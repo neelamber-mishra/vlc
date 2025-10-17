@@ -160,6 +160,7 @@ struct es_out_id_t
     vlc_mouse_event mouse_event_cb;
     void* mouse_event_userdata;
     vlc_mouse_t oldmouse;
+    bool mouse_being_dragged;
 };
 
 typedef struct
@@ -339,22 +340,30 @@ static void MouseEventCb(const vlc_mouse_t *newmouse, void *userdata)
     if(!p_sys->p_input)
         return;
 
-    /* player event is disabled when a filter is listening to mouse events */
-    if(!newmouse || vlc_mouse_HasMouseFilter(newmouse))
+    if(!newmouse)
     {
         vlc_mouse_Init(&id->oldmouse);
+        id->mouse_being_dragged = false;
         return;
     }
 
-    struct vlc_input_event_mouse event = {
-        .oldmouse = id->oldmouse,
-        .newmouse = *newmouse
+    const es_format_t *fmt = id->fmt_out.i_cat != UNKNOWN_ES ? &id->fmt_out : &id->fmt;
+
+    if (fmt->video.projection_mode != PROJECTION_MODE_RECTANGULAR) {
+        if (vlc_mouse_HasDragged( &id->oldmouse, newmouse )) {
+            id->mouse_being_dragged = true;
+        }
     };
 
-    input_SendEvent(p_sys->p_input, &(struct vlc_input_event) {
-        .type = INPUT_EVENT_MOUSE,
-        .mouse_data = event,
-    });
+    if (vlc_mouse_HasReleased(&id->oldmouse, newmouse, MOUSE_BUTTON_LEFT)) {
+        if (!id->mouse_being_dragged) {
+            input_SendEvent(p_sys->p_input, &(struct vlc_input_event) {
+                .type = INPUT_EVENT_MOUSE_LEFT
+            });
+        }
+
+        id->mouse_being_dragged = false;
+    }
 
     id->oldmouse = *newmouse;
 }
@@ -960,10 +969,13 @@ static void EsOutChangePosition(es_out_sys_t *p_sys, bool b_flush,
     vlc_list_foreach(pgrm, &p_sys->programs, node)
     {
         input_clock_Reset(pgrm->p_input_clock);
-        vlc_clock_main_Lock(pgrm->clocks.main);
-        pgrm->i_last_pcr = VLC_TICK_INVALID;
-        vlc_clock_Reset(pgrm->clocks.input);
-        vlc_clock_main_Unlock(pgrm->clocks.main);
+        if (pgrm->clocks.input != NULL)
+        {
+            vlc_clock_Lock(pgrm->clocks.input);
+            pgrm->i_last_pcr = VLC_TICK_INVALID;
+            vlc_clock_Reset(pgrm->clocks.input);
+            vlc_clock_Unlock(pgrm->clocks.input);
+        }
     }
 
     p_sys->b_buffering = true;
@@ -1307,6 +1319,7 @@ ClockListenerUpdate(void *opaque, vlc_tick_t ck_system,
                     vlc_tick_t ck_stream, double rate, bool discontinuity)
 {
     es_out_pgrm_t *pgrm = opaque;
+    assert(pgrm->clocks.input != NULL);
     vlc_clock_Lock(pgrm->clocks.input);
 
     if (discontinuity)
@@ -1325,6 +1338,7 @@ static void
 ClockListenerReset(void *opaque)
 {
     es_out_pgrm_t *pgrm = opaque;
+    assert(pgrm->clocks.input != NULL);
     vlc_clock_Lock(pgrm->clocks.input);
     vlc_clock_Reset(pgrm->clocks.input);
     vlc_clock_Unlock(pgrm->clocks.input);
@@ -2245,6 +2259,7 @@ static es_out_id_t *EsOutAddLocked(es_out_sys_t *p_sys,
     vlc_mouse_Init(&es->oldmouse);
     es->mouse_event_cb = MouseEventCb;
     es->mouse_event_userdata = es;
+    es->mouse_being_dragged = false;
     es->i_pts_level = VLC_TICK_INVALID;
     es->delay = VLC_TICK_MAX;
 
@@ -3643,8 +3658,9 @@ static int EsOutVaControlLocked(es_out_sys_t *p_sys, input_source_t *source,
     {
         input_thread_t *input = p_sys->p_input;
         input_item_node_t *node = va_arg(args, input_item_node_t *);
-        input_SendEventParsing(input, node);
-        input_item_node_Delete(node);
+        if (!input_SendEventParsing(input, node)) {
+            input_item_node_Delete(node);
+        }
 
         return VLC_SUCCESS;
     }
@@ -3918,6 +3934,7 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
         vlc_tick_t i_time = va_arg( args, vlc_tick_t );
         vlc_tick_t i_normal_time = va_arg( args, vlc_tick_t );
         vlc_tick_t i_length = va_arg( args, vlc_tick_t );
+        bool b_live = va_arg( args, int );
 
         if (i_normal_time != VLC_TICK_INVALID)
             source->i_normal_time = i_normal_time;
@@ -3928,7 +3945,7 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
         if (p_sys->b_buffering)
         {
             input_SendEventTimes(p_sys->p_input, 0.0, VLC_TICK_INVALID,
-                                 i_normal_time, i_length);
+                                 i_normal_time, i_length, b_live);
             return VLC_SUCCESS;
         }
 
@@ -3954,7 +3971,7 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
             f_position = 0;
 
         input_SendEventTimes(p_sys->p_input, f_position, i_time,
-                             i_normal_time, i_length);
+                             i_normal_time, i_length, b_live);
         return VLC_SUCCESS;
     }
     case ES_OUT_PRIV_SET_JITTER:
@@ -4437,12 +4454,12 @@ static void EsOutUpdateInfo(es_out_sys_t *p_sys,
                                       (double)fmt->video.i_frame_rate
                                       / (double)fmt->video.i_frame_rate_base );
        }
-       if( fmt->i_codec != p_fmt_es->i_codec )
+       if( fmt->video.i_chroma != 0 )
        {
            psz_codec_description = vlc_fourcc_GetDescription( VIDEO_ES,
-                                                              fmt->i_codec );
+                                                              fmt->video.i_chroma );
            info_category_AddCodecInfo( p_cat, _("Decoded format"),
-                                       fmt->i_codec,
+                                       fmt->video.i_chroma,
                                        psz_codec_description );
        }
        {
@@ -4556,9 +4573,6 @@ static void EsOutUpdateInfo(es_out_sys_t *p_sys,
            const char *psz_loc_name = NULL;
            switch (fmt->video.projection_mode)
            {
-           case PROJECTION_MODE_RECTANGULAR:
-               psz_loc_name = N_("Rectangular");
-               break;
            case PROJECTION_MODE_EQUIRECTANGULAR:
                psz_loc_name = N_("Equirectangular");
                break;

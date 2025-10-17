@@ -24,9 +24,8 @@
 #define VLC_FRAME_H 1
 
 #include <vlc_tick.h>
+#include <vlc_ancillary.h>
 
-struct vlc_ancillary;
-typedef uint32_t vlc_ancillary_id;
 
 /**
  * \defgroup frame Frames
@@ -134,9 +133,7 @@ struct vlc_frame_t
     vlc_tick_t  i_dts;
     vlc_tick_t  i_length;
 
-    /** Private ancillary struct. Don't use it directly, but use it via
-     * vlc_frame_AttachAncillary() and vlc_frame_GetAncillary(). */
-    struct vlc_ancillary **priv_ancillaries;
+    vlc_ancillary_array ancillaries;
 
     const struct vlc_frame_callbacks *cbs;
 };
@@ -233,6 +230,35 @@ vlc_frame_Realloc(vlc_frame_t *frame, ssize_t pre, size_t body) VLC_USED;
 VLC_API void vlc_frame_Release(vlc_frame_t *frame);
 
 /**
+ * Merge two ancillary arrays
+ *
+ * @param frame the frame that hold the destination ancillary array
+ * @param src_array pointer to an ancillary array
+ * @return VLC_SUCCESS in case of success, VLC_ENOMEM in case of alloc error
+ */
+static inline int
+vlc_frame_MergeAncillaries(vlc_frame_t *frame,
+                           const vlc_ancillary_array *src_array)
+{
+    return vlc_ancillary_array_Merge(&frame->ancillaries, src_array);
+}
+
+/**
+ * Merge and clear two ancillary arrays
+ *
+ * @param frame the frame that hold the destination ancillary array
+ * @param src_array pointer to the source ancillary array, will point to empty
+ * data after this call.
+ * @return VLC_SUCCESS in case of success, VLC_ENOMEM in case of alloc error
+ */
+static inline int
+vlc_frame_MergeAndClearAncillaries(vlc_frame_t *frame,
+                                   vlc_ancillary_array *src_array)
+{
+    return vlc_ancillary_array_MergeAndClear(&frame->ancillaries, src_array);
+}
+
+/**
  * Attach an ancillary to the frame
  *
  * @warning the ancillary will be released only if the frame is allocated from
@@ -245,8 +271,11 @@ VLC_API void vlc_frame_Release(vlc_frame_t *frame);
  * @param ancillary ancillary that will be held by the frame, can't be NULL
  * @return VLC_SUCCESS in case of success, VLC_ENOMEM in case of alloc error
  */
-VLC_API int
-vlc_frame_AttachAncillary(vlc_frame_t *frame, struct vlc_ancillary *ancillary);
+static inline int
+vlc_frame_AttachAncillary(vlc_frame_t *frame, struct vlc_ancillary *ancillary)
+{
+    return vlc_ancillary_array_Insert(&frame->ancillaries, ancillary);
+}
 
 /**
  * Return the ancillary identified by an ID
@@ -256,8 +285,11 @@ vlc_frame_AttachAncillary(vlc_frame_t *frame, struct vlc_ancillary *ancillary);
  * @return the ancillary or NULL if the ancillary for that particular id is
  * not present
  */
-VLC_API struct vlc_ancillary *
-vlc_frame_GetAncillary(vlc_frame_t *frame, vlc_ancillary_id id);
+static inline struct vlc_ancillary *
+vlc_frame_GetAncillary(vlc_frame_t *frame, vlc_ancillary_id id)
+{
+    return vlc_ancillary_array_Get(&frame->ancillaries, id);
+}
 
 /**
  * Copy frame properties from src to dst

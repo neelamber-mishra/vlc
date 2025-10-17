@@ -93,11 +93,6 @@
     }
 }
 
-- (void)libraryModelAudioMediaItemsReset:(NSNotification *)notification
-{
-    [self updateRepresentedListOfAlbums];
-}
-
 - (void)connect
 {
     NSNotificationCenter * const notificationCenter = NSNotificationCenter.defaultCenter;
@@ -106,7 +101,27 @@
                            selector:@selector(libraryModelAudioMediaItemsReset:)
                                name:VLCLibraryModelAudioMediaListReset
                              object:nil];
-    // TODO: Handle item deletion, update
+    [notificationCenter addObserver:self
+                           selector:@selector(libraryModelAudioMediaItemUpdated:)
+                               name:VLCLibraryModelAudioMediaItemUpdated
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(libraryModelAudioMediaItemDeleted:)
+                               name:VLCLibraryModelAudioMediaItemDeleted
+                             object:nil];
+
+    [notificationCenter addObserver:self
+                           selector:@selector(libraryModelAlbumsReset:)
+                               name:VLCLibraryModelAlbumListReset
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(libraryModelAlbumUpdated:)
+                               name:VLCLibraryModelAlbumUpdated
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(libraryModelAlbumDeleted:)
+                               name:VLCLibraryModelAlbumDeleted
+                             object:nil];
 
     [self reloadData];
 }
@@ -114,6 +129,106 @@
 - (void)disconnect
 {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (NSInteger)rowContainingMediaItem:(id<VLCMediaLibraryItemProtocol>)libraryItem
+{
+    return [self.representedAudioGroup.albums indexOfObjectPassingTest:^BOOL(VLCMediaLibraryAlbum *album, NSUInteger idx, BOOL *stop) {
+        return [album.mediaItems indexOfObjectPassingTest:^BOOL(VLCMediaLibraryMediaItem *item, NSUInteger idx, BOOL *stop) {
+            return item.libraryID == libraryItem.libraryID;
+        }] != NSNotFound;
+    }];
+}
+
+- (void)handleAlbumUpdateInRow:(NSInteger)row
+{
+    NSParameterAssert(row >= 0 && row < self.representedListOfAlbums.count);
+    NSIndexSet * const indexSet = [NSIndexSet indexSetWithIndex:row];
+    NSIndexSet * const columnIndexSet = [NSIndexSet indexSetWithIndex:0];
+    NSSet * const indexPaths = [NSSet setWithObject:[NSIndexPath indexPathForItem:row inSection:0]];
+
+    [self performActionOnTableViews:^(NSTableView * const tableView){
+        [tableView reloadDataForRowIndexes:indexSet columnIndexes:columnIndexSet];
+    } onCollectionViews:^(NSCollectionView * const collectionView){
+        [collectionView reloadItemsAtIndexPaths:indexPaths];
+    }];
+}
+
+- (void)handleLibraryItemChange:(id<VLCMediaLibraryItemProtocol>)item
+{
+    NSParameterAssert(item != nil);
+    const NSInteger row = [self rowContainingMediaItem:item];
+    if (row == NSNotFound) {
+        NSLog(@"VLCLibraryAudioGroupDataSource: Unable to find row for library item, can't change");
+        return;
+    }
+    [self handleAlbumUpdateInRow:row];
+}
+
+- (void)performActionOnTableViews:(void (^)(NSTableView *))tableViewAction
+                onCollectionViews:(void (^)(NSCollectionView *))collectionViewAction
+{
+    NSParameterAssert(tableViewAction != nil && collectionViewAction != nil);
+
+    NSArray<NSTableView *> * const tableViews = self.tableViews;
+    for (NSTableView * const tableView in tableViews) {
+        tableViewAction(tableView);
+    }
+
+    NSArray<NSCollectionView *> * const collectionViews = self.collectionViews;
+    for (NSCollectionView * const collectionView in collectionViews) {
+        collectionViewAction(collectionView);
+    }
+}
+
+- (void)libraryModelAudioMediaItemsReset:(NSNotification *)notification
+{
+    [self updateRepresentedListOfAlbums];
+}
+
+
+- (void)libraryModelAudioMediaItemUpdated:(NSNotification *)notification
+{
+    [self handleLibraryItemChange:notification.object];
+}
+
+- (void)libraryModelAudioMediaItemDeleted:(NSNotification *)notification
+{
+    [self handleLibraryItemChange:notification.object];
+}
+
+- (void)libraryModelAlbumsReset:(NSNotification *)notification
+{
+    [self updateRepresentedListOfAlbums];
+}
+
+- (void)libraryModelAlbumUpdated:(NSNotification *)notification
+{
+    const NSInteger row = [self rowForLibraryItem:notification.object];
+    if (row == NSNotFound) {
+        NSLog(@"VLCLibraryAudioGroupDataSource: Unable to find row for library item, can't update");
+        return;
+    }
+
+    [self handleAlbumUpdateInRow:row];
+}
+
+- (void)libraryModelAlbumDeleted:(NSNotification *)notification
+{
+    const NSInteger row = [self rowForLibraryItem:notification.object];
+    if (row == NSNotFound) {
+        NSLog(@"VLCLibraryAudioGroupDataSource: Unable to find row for library item, can't delete");
+        return;
+    }
+
+    NSIndexSet * const indexSet = [NSIndexSet indexSetWithIndex:row];
+    NSSet * const indexPaths = [NSSet setWithObject:[NSIndexPath indexPathForItem:row inSection:0]];
+
+    [self performActionOnTableViews:^(NSTableView * const tableView){
+        [tableView removeRowsAtIndexes:indexSet withAnimation:NSTableViewAnimationSlideUp];
+    } onCollectionViews:^(NSCollectionView * const collectionView){
+        [collectionView deleteItemsAtIndexPaths:indexPaths];
+    }];
 }
 
 - (void)reloadTableViews

@@ -110,6 +110,8 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
         _videoViewController = [[VLCMainVideoViewController alloc] init];
     }
 
+    self.delegate = self;
+
     NSNotificationCenter *notificationCenter = NSNotificationCenter.defaultCenter;
     [notificationCenter addObserver:self
                            selector:@selector(mediaMetadataChanged:)
@@ -128,7 +130,6 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
     [o_temp_view setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
 
     _playerController = VLCMain.sharedInstance.playQueueController.playerController;
-    _videoViewController = [[VLCMainVideoViewController alloc] init];
 
     [self mediaMetadataChanged:nil];
 
@@ -161,6 +162,10 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
     }
 
     self.representedURL = [NSURL URLWithString:inputItem.MRL];
+    
+    if (self.hasActiveVideo && !self.isVisible && !self.playerController.currentMediaIsAudioOnly && self.playerController.videoTracksEnabled) {
+        [self makeKeyAndOrderFront:self];
+    }
 }
 
 - (void)setTitle:(NSString *)title
@@ -492,6 +497,15 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
         [self orderOut: self];
 
     _inFullscreenTransition = NO;
+    
+    if ([self hasActiveVideo]) {
+        vout_thread_t *p_vout = [_playerController videoOutputThreadForKeyWindow];
+        if (p_vout) {
+            var_SetBool(p_vout, "fullscreen", true);
+            vout_Release(p_vout);
+        }
+    }
+
     [self setFullscreen:YES];
 }
 
@@ -618,6 +632,14 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
     [self setLevel:i_originalLevel];
 
     [self setAlphaValue: config_GetFloat("macosx-opaqueness")];
+
+    if ([self hasActiveVideo]) {
+        vout_thread_t *p_vout = [_playerController videoOutputThreadForKeyWindow];
+        if (p_vout) {
+            var_SetBool(p_vout, "fullscreen", false);
+            vout_Release(p_vout);
+        }
+    }
 }
 
 - (void)animationDidEnd:(NSAnimation*)animation
@@ -636,6 +658,14 @@ NSString *VLCWindowShouldShowController = @"VLCWindowShouldShowController";
     /* Fullscreen started */
         [self hasBecomeFullscreen];
     }
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)sender
+{
+    if (!self.playerController.currentMediaIsAudioOnly && self.playerController.playerState == VLC_PLAYER_STATE_PLAYING) {
+        [self.playerController pause];
+    }
+    return YES;
 }
 
 @end

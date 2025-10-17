@@ -62,6 +62,7 @@
     NSTimeInterval last_bwd_event;
     BOOL just_triggered_next;
     BOOL just_triggered_previous;
+    BOOL _isTimeSliderBeingDragged;
 
     VLCPlayQueueController *_playQueueController;
     VLCPlayerController *_playerController;
@@ -103,11 +104,16 @@
                                name:VLCPlayerCurrentMediaItemChanged
                              object:nil];
     [notificationCenter addObserver:self
+                           selector:@selector(updateCurrentItemDisplayControls:)
+                               name:VLCPlayerMetadataChangedForCurrentMedia
+                             object:nil];
+    [notificationCenter addObserver:self
                            selector:@selector(fullscreenStateUpdated:)
                                name:VLCPlayerFullscreenChanged
                              object:nil];
 
     _nativeFullscreenMode = var_InheritBool(getIntf(), "macosx-nativefullscreenmode");
+    _isTimeSliderBeingDragged = NO;
 
     self.dropView.drawBorder = NO;
 
@@ -138,18 +144,23 @@
     self.fullscreenButton.accessibilityLabel = self.fullscreenButton.toolTip;
 
     if (@available(macOS 11.0, *)) {
-        _playImage = [NSImage imageWithSystemSymbolName:@"play.circle.fill"
-                               accessibilityDescription:_NS("Play")];
-        _pressedPlayImage = [NSImage imageWithSystemSymbolName:@"play.circle.fill"
-                                      accessibilityDescription:_NS("Play")];
-        _pauseImage = [NSImage imageWithSystemSymbolName:@"pause.circle.fill"
-                                accessibilityDescription:_NS("Pause")];
-        _pressedPauseImage = [NSImage imageWithSystemSymbolName:@"pause.circle.fill"
-                                       accessibilityDescription:_NS("Pause")];
-        _backwardImage = [NSImage imageWithSystemSymbolName:@"backward.fill"
-                                   accessibilityDescription:_NS("Previous")];
-        _forwardImage = [NSImage imageWithSystemSymbolName:@"forward.fill"
-                                  accessibilityDescription:_NS("Next")];
+        if (@available(macOS 26.0, *)) {
+            _playImage = [NSImage imageWithSystemSymbolName:@"play.fill" accessibilityDescription:_NS("Play")];
+            _pressedPlayImage = [NSImage imageWithSystemSymbolName:@"play.fill" accessibilityDescription:_NS("Play")];
+            _pauseImage = [NSImage imageWithSystemSymbolName:@"pause.fill" accessibilityDescription:_NS("Pause")];
+            _pressedPauseImage = [NSImage imageWithSystemSymbolName:@"pause.fill" accessibilityDescription:_NS("Pause")];
+        } else {
+            _playImage = [NSImage imageWithSystemSymbolName:@"play.circle.fill"
+                                accessibilityDescription:_NS("Play")];
+            _pressedPlayImage = [NSImage imageWithSystemSymbolName:@"play.circle.fill"
+                                        accessibilityDescription:_NS("Play")];
+            _pauseImage = [NSImage imageWithSystemSymbolName:@"pause.circle.fill"
+                                    accessibilityDescription:_NS("Pause")];
+            _pressedPauseImage = [NSImage imageWithSystemSymbolName:@"pause.circle.fill"
+                                        accessibilityDescription:_NS("Pause")];
+        }
+        _backwardImage = [NSImage imageWithSystemSymbolName:@"backward.fill" accessibilityDescription:_NS("Previous")];
+        _forwardImage = [NSImage imageWithSystemSymbolName:@"forward.fill" accessibilityDescription:_NS("Next")];
         _fullscreenImage = [NSImage imageWithSystemSymbolName:@"arrow.up.backward.and.arrow.down.forward"
                                      accessibilityDescription:_NS("Fullscreen")];
         _mutedVolumeImage = [NSImage imageWithSystemSymbolName:@"speaker.slash.fill"
@@ -239,8 +250,6 @@
 
     [self.forwardButton setAction:@selector(fwd:)];
     [self.backwardButton setAction:@selector(bwd:)];
-
-    [self playerStateUpdated:nil];
 
     self.artworkImageView.cropsImagesToRoundedCorners = YES;
     self.artworkImageView.image = [NSImage imageNamed:@"noart"];
@@ -356,16 +365,13 @@
     }
 
     switch (NSApp.currentEvent.type) {
-        case NSEventTypeLeftMouseUp:
-            /* Ignore mouse up, as this is a continuous slider and
-             * when the user does a single click to a position on the slider,
-             * the action is called twice, once for the mouse down and once
-             * for the mouse up event. This results in two short seeks one
-             * after another to the same position, which results in weird
-             * audio quirks.
-             */
-            return;
         case NSEventTypeLeftMouseDown:
+        {
+            _isTimeSliderBeingDragged = YES;
+            const float newPosition = [sender floatValue];
+            [_playerController setPositionFast:newPosition];
+            break;
+        }
         case NSEventTypeLeftMouseDragged:
         case NSEventTypeScrollWheel:
         {
@@ -374,6 +380,9 @@
             self.timeSlider.floatValue = newPosition;
             break;
         }
+        case NSEventTypeLeftMouseUp:
+            _isTimeSliderBeingDragged = NO;
+            break;
         default:
             return;
     }
@@ -408,10 +417,15 @@
     [self updateMuteVolumeButtonImage];
     [self updatePlaybackControls:nil];
     [self updateCurrentItemDisplayControls:nil];
+    [self playerStateUpdated:nil];
 }
 
 - (void)updateTimeSlider:(NSNotification *)aNotification;
 {
+    if (_isTimeSliderBeingDragged) {
+        return;
+    }
+
     VLCInputItem * const inputItem = _playerController.currentMedia;
 
     const BOOL validInputItem = inputItem != nil;

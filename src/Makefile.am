@@ -148,7 +148,7 @@ noinst_HEADERS = \
 
 ../include/vlc_about.h: Makefile.am $(top_srcdir)/COPYING $(top_srcdir)/THANKS $(top_srcdir)/AUTHORS
 	$(AM_V_at)rm -f -- "$@.tmp"
-	$(AM_V_at)mkdir -p -- ../include
+	$(AM_V_at)$(MKDIR_P) "../include"
 	$(AM_V_GEN)(echo "/* Automatically generated file - DO NOT EDIT */" && \
 	echo "static const char psz_license[] =" && \
 	sed 's/"/\\"/g;s/^.*$$/\"&\\n\"/' "$(top_srcdir)/COPYING" && \
@@ -367,7 +367,6 @@ libvlccore_la_SOURCES = \
 	network/http_auth.c \
 	network/httpd.c \
 	network/io.c \
-	network/tcp.c \
 	network/udp.c \
 	network/rootbind.c \
 	network/stream.c \
@@ -381,7 +380,6 @@ libvlccore_la_SOURCES = \
 	text/iso_lang.c \
 	text/iso-639_def.h \
 	misc/actions.c \
-	misc/ancillary.h \
 	misc/ancillary.c \
 	misc/chroma_probe.c \
 	misc/executor.c \

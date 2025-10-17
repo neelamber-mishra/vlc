@@ -92,8 +92,8 @@ PlaylistManager::~PlaylistManager   ()
     delete streamFactory;
     unsetPeriod();
     delete playlist;
-    delete logic;
     delete resources;
+    delete logic;
     delete bufferingLogic;
 }
 
@@ -141,8 +141,8 @@ bool PlaylistManager::setupPeriod()
             if(!set->getLang().empty())
                 st->setLanguage(set->getLang());
 
-            if(!set->description.Get().empty())
-                st->setDescription(set->description.Get());
+            if(!set->description.empty())
+                st->setDescription(set->description);
         }
     }
     return true;
@@ -155,8 +155,8 @@ bool PlaylistManager::init(bool b_preparsing)
     if(!setupPeriod())
         return false;
 
-    playlist->playbackStart.Set(time(nullptr));
-    nextPlaylistupdate = playlist->playbackStart.Get();
+    playlist->playbackStart = time(nullptr);
+    nextPlaylistupdate = playlist->playbackStart;
 
     if(b_preparsing)
         preparsePlaylist();
@@ -616,6 +616,7 @@ int PlaylistManager::doControl(int i_query, va_list args)
             if(cached.b_live && cached.playlistLength == 0)
                 return VLC_EGENERIC;
             *(va_arg (args, vlc_tick_t *)) = cached.playlistLength;
+            *(va_arg (args, bool *)) = cached.b_live;
             break;
         }
 
@@ -835,8 +836,8 @@ void PlaylistManager::updateControlsPosition()
         cached.i_normaltime = startTimes.continuous;
         cached.i_normaltime += VLC_TICK_0 + cached.playlistStart - startTimes.segment.media;
 
-        if(playlist->duration.Get() > cached.playlistLength)
-            cached.playlistLength = playlist->duration.Get();
+        if(playlist->duration > cached.playlistLength)
+            cached.playlistLength = playlist->duration;
 
         if(cached.playlistLength && currentTimes.segment.media != VLC_TICK_INVALID)
         {

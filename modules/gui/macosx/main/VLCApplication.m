@@ -31,6 +31,7 @@
 #import "extensions/NSString+Helpers.h"
 
 #import <vlc_configuration.h>
+#import <vlc_interface.h>
 
 /*****************************************************************************
  * VLCApplication implementation
@@ -40,6 +41,7 @@
 {
     NSURL *_appLocationURL;
     NSImage *_vlcAppIconImage;
+    intf_thread_t *_intf;
 }
 
 @end
@@ -58,8 +60,25 @@
          * it ends-up after being relocated or rename */
         _appLocationURL = [[[NSBundle mainBundle] bundleURL] fileReferenceURL];
 
+        if (config_GetInt("macosx-icon-change")) {
+            NSCalendar *const gregorian =
+                [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+            const NSUInteger dayOfYear = [gregorian ordinalityOfUnit:NSCalendarUnitDay
+                                                              inUnit:NSCalendarUnitYear
+                                                             forDate:[NSDate date]];
+
+            if (dayOfYear >= 354) {
+                _winterHolidaysTheming = YES;
+            }
+        }
+
     }
     return self;
+}
+
+- (void)setIntf:(intf_thread_t*)intf
+{
+    _intf = intf;
 }
 
 - (void)dealloc
@@ -75,16 +94,12 @@
     if (_vlcAppIconImage != nil)
         return _vlcAppIconImage;
 
-    if (config_GetInt("macosx-icon-change")) {
+    if (self.winterHolidaysTheming) {
         /* After day 354 of the year, the usual VLC cone is replaced by another cone
          * wearing a Father Xmas hat.
          * Note: this icon doesn't represent an endorsement of The Coca-Cola Company.
          */
-        NSCalendar *gregorian = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
-        NSUInteger dayOfYear = [gregorian ordinalityOfUnit:NSCalendarUnitDay inUnit:NSCalendarUnitYear forDate:[NSDate date]];
-
-        if (dayOfYear >= 354)
-            _vlcAppIconImage = [NSImage imageNamed:@"VLC-Xmas"];
+        _vlcAppIconImage = [NSImage imageNamed:@"VLC-Xmas"];
     }
 
     if (_vlcAppIconImage == nil)
@@ -132,19 +147,7 @@
 - (void)terminate:(id)sender
 {
     [self activateIgnoringOtherApps:YES];
-    [self stop:sender];
-
-    // Trigger event in loop to force evaluating the stop flag
-    NSEvent* event = [NSEvent otherEventWithType:NSApplicationDefined
-                                        location:NSMakePoint(0,0)
-                                   modifierFlags:0
-                                       timestamp:0.0
-                                    windowNumber:0
-                                         context:nil
-                                         subtype:0
-                                           data1:0
-                                           data2:0];
-    [NSApp postEvent:event atStart:YES];
+    libvlc_Quit(vlc_object_instance(_intf));
 }
 
 @end

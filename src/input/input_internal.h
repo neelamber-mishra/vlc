@@ -152,7 +152,7 @@ typedef enum input_event_type_e
     INPUT_EVENT_NAV_FAILED,
 
     /* Mouse event */
-    INPUT_EVENT_MOUSE,
+    INPUT_EVENT_MOUSE_LEFT,
 } input_event_type_e;
 
 #define VLC_INPUT_CAPABILITIES_SEEKABLE (1<<0)
@@ -173,6 +173,7 @@ struct vlc_input_event_times
     vlc_tick_t time;
     vlc_tick_t normal_time;
     vlc_tick_t length;
+    bool live;
 };
 
 struct vlc_input_event_output_clock
@@ -328,14 +329,12 @@ struct vlc_input_event
         struct vlc_input_event_attachments attachments;
         /* INPUT_EVENT_NAV_FAILED */
         int nav_type;
-        /* INPUT_EVENT_MOUSE */
-        struct vlc_input_event_mouse mouse_data;
     };
 };
 
 struct vlc_input_thread_callbacks
 {
-    void (*on_event)(input_thread_t *input, const struct vlc_input_event *event,
+    bool (*on_event)(input_thread_t *input, const struct vlc_input_event *event,
                      void *userdata);
 };
 

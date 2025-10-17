@@ -306,7 +306,7 @@ int M3U8Playlist_test()
         Segment *seg = rep->getMediaSegment(number);
         Expect(seg);
         Expect(seg->getSequenceNumber() == 10);
-        Expect(seg->startTime.Get() == (stime_t) 0);
+        Expect(seg->startTime == (stime_t) 0);
 
         vlc_tick_t begin, end;
         Expect(rep->getMediaPlaybackRange(&begin, &end, &duration));
@@ -340,7 +340,7 @@ int M3U8Playlist_test()
         BaseRepresentation *rep = m3u->getFirstPeriod()->getAdaptationSets().front()->
                                   getRepresentations().front();
         Expect(rep->getProfile()->getStartSegmentNumber() == 10);
-        Expect(m3u->duration.Get());
+        Expect(m3u->duration);
 
         Timescale timescale = rep->inheritTimescale();
         Expect(timescale.isValid());
@@ -352,7 +352,7 @@ int M3U8Playlist_test()
         Expect(number == 12);
         Expect(!discont);
         Expect(seg->getSequenceNumber() == 12);
-        Expect(seg->startTime.Get() == timescale.ToScaled(vlc_tick_from_sec(20)));
+        Expect(seg->startTime == timescale.ToScaled(vlc_tick_from_sec(20)));
 
         vlc_tick_t begin, end, duration;
         Expect(rep->getMediaPlaybackRange(&begin, &end, &duration));
@@ -493,11 +493,11 @@ int M3U8Playlist_test()
     {
         Expect(m3u);
         Expect(m3u->isLive() == false);
-        Expect(m3u->presentationStartOffset.Get() == vlc_tick_from_sec(50 - 11.5));
+        Expect(m3u->presentationStartOffset == vlc_tick_from_sec(50 - 11.5));
         BaseRepresentation *rep = m3u->getFirstPeriod()->getAdaptationSets().front()->
                                   getRepresentations().front();
         Expect(bufferingLogic.getStartSegmentNumber(rep) == 13);
-        m3u->presentationStartOffset.Set(vlc_tick_from_sec(11.5));
+        m3u->presentationStartOffset = vlc_tick_from_sec(11.5);
         Expect(bufferingLogic.getStartSegmentNumber(rep) == 11);
 
         delete m3u;
@@ -542,6 +542,48 @@ int M3U8Playlist_test()
         delete m3u;
         return 1;
     }
+
+
+    /* Manifest 6 */
+    const char manifest6[] =
+        "#EXTM3U\n"
+        "#EXT-X-MEDIA-SEQUENCE:10\n"
+        "#EXTINF:1\n"
+        "#EXT-X-BYTERANGE:1000@0\n"
+        "foobar.ts\n"
+        "#EXT-X-BYTERANGE:4000@2000\n"
+        "foobar.ts\n"
+        "#EXT-X-BYTERANGE:500\n"
+        "foobar.ts\n"
+        "#EXT-X-BYTERANGE:1000@0\n"
+        "foobar.ts\n";
+
+    m3u = ParseM3U8(obj, manifest6, sizeof(manifest6));
+    try
+    {
+        Expect(m3u);
+        BaseRepresentation *rep = m3u->getFirstPeriod()->getAdaptationSets().front()->
+                                  getRepresentations().front();
+        Segment *seg = rep->getMediaSegment(10);
+        Expect(seg);
+        Expect(seg->getOffset() == 0);
+        seg = rep->getMediaSegment(11);
+        Expect(seg);
+        Expect(seg->getOffset() == 2000);
+        seg = rep->getMediaSegment(12);
+        Expect(seg);
+        Expect(seg->getOffset() == 6000);
+        seg = rep->getMediaSegment(13);
+        Expect(seg);
+        Expect(seg->getOffset() == 0);
+        delete m3u;
+    }
+    catch (...)
+    {
+        delete m3u;
+        return 1;
+    }
+
 
     return 0;
 }

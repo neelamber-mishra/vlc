@@ -30,12 +30,43 @@ xib_verbose_0 = @echo "  XIB     " $@;
 xib_verbose__0 = $(xib_verbose_0)
 
 .xib.nib:
-	$(AM_V_at)mkdir -p -- gui/macosx/UI
+	$(AM_V_at)$(MKDIR_P) "gui/macosx/UI"
 	$(xib_verbose)$(XIB) --errors --warnings --notices \
 	  --module VLC --auto-activate-custom-fonts --target-device mac \
 	  --minimum-deployment-target 10.11 --output-format human-readable-text \
 	  --compile $@ $<
 
+if ENABLE_MACOSX_UI_SHADERS
+SUFFIXES += .air .metal
+
+metal_verbose = $(metal_verbose_$(V))
+metal_verbose_ = $(metal_verbose__$(AM_DEFAULT_VERBOSITY))
+metal_verbose_0 = @echo "  METAL     " $@;
+metal_verbose__0 = $(metal_verbose_0)
+
+# Rule to compile .metal to .air
+.metal.air:
+	$(AM_V_at)$(MKDIR_P) "gui/macosx/shaders"
+	$(metal_verbose)$(METAL) -c $< -o $@
+
+metallib_verbose = $(metallib_verbose_$(V))
+metallib_verbose_ = $(metallib_verbose__$(AM_DEFAULT_VERBOSITY))
+metallib_verbose_0 = @echo "  METALLIB " $@;
+metallib_verbose__0 = $(metallib_verbose_0)
+
+libmacosx_plugin_la_METAL_srcs = gui/macosx/shaders/VLCSnowShader.metal
+libmacosx_plugin_la_METAL_AIR_FILES = $(libmacosx_plugin_la_METAL_srcs:.metal=.air)
+libmacosx_plugin_la_METAL_LIBRARY = gui/macosx/Resources/Shaders.metallib
+
+$(libmacosx_plugin_la_METAL_LIBRARY): $(libmacosx_plugin_la_METAL_AIR_FILES)
+	$(AM_V_at)$(MKDIR_P) "gui/macosx/shaders"
+	$(metallib_verbose)$(METALLIB) $(libmacosx_plugin_la_METAL_AIR_FILES) -o $@
+
+EXTRA_DIST += $(libmacosx_plugin_la_METAL_srcs)
+BUILT_SOURCES += $(libmacosx_plugin_la_METAL_LIBRARY)
+CLEANFILES += $(libmacosx_plugin_la_METAL_AIR_FILES) $(libmacosx_plugin_la_METAL_LIBRARY)
+
+endif
 
 libmacosx_plugin_la_OBJCFLAGS = $(AM_OBJCFLAGS) -fobjc-exceptions -fobjc-arc -I$(srcdir)/gui/macosx
 libmacosx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(guidir)' \
@@ -43,6 +74,7 @@ libmacosx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(guidir)' \
 	-Wl,-framework,AVFoundation \
 	-Wl,-framework,Cocoa \
 	-Wl,-framework,CoreAudio \
+	-Wl,-framework,CoreGraphics \
 	-Wl,-framework,CoreVideo \
 	-Wl,-framework,IOKit \
 	-Wl,-framework,QuartzCore \
@@ -51,6 +83,11 @@ libmacosx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(guidir)' \
 	-Wl,-framework,QuickLook \
 	-Wl,-framework,QuickLookThumbnailing \
 	-Wl,-weak_framework,MediaPlayer
+
+if ENABLE_MACOSX_UI_SHADERS
+libmacosx_plugin_la_LDFLAGS += -Wl,-framework,Metal \
+	-Wl,-framework,MetalKit
+endif
 
 if HAVE_SPARKLE
 libmacosx_plugin_la_LDFLAGS += -Wl,-framework,Sparkle
@@ -85,6 +122,10 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/extensions/NSWindow+VLCAdditions.m \
 	gui/macosx/extensions/NSPasteboardItem+VLCAdditions.h \
 	gui/macosx/extensions/NSPasteboardItem+VLCAdditions.m \
+	gui/macosx/extensions/NSTableCellView+VLCAdditions.h \
+	gui/macosx/extensions/NSTableCellView+VLCAdditions.m \
+	gui/macosx/extensions/NSTextField+VLCAdditions.h \
+	gui/macosx/extensions/NSTextField+VLCAdditions.m \
 	gui/macosx/extensions/VLCHexNumberFormatter.h \
 	gui/macosx/extensions/VLCHexNumberFormatter.m \
 	gui/macosx/extensions/VLCPositionFormatter.h \
@@ -216,6 +257,8 @@ libmacosx_plugin_la_SOURCES = \
     gui/macosx/library/home-library/VLCLibraryHomeViewVideoContainerViewDataSource.m \
 	gui/macosx/library/home-library/VLCLibraryHomeViewVideoGridContainerView.h \
     gui/macosx/library/home-library/VLCLibraryHomeViewVideoGridContainerView.m \
+	gui/macosx/library/video-library/VLCLibraryMoviesDataSource.h \
+	gui/macosx/library/video-library/VLCLibraryMoviesDataSource.m \
 	gui/macosx/library/video-library/VLCLibraryShowsDataSource.h \
 	gui/macosx/library/video-library/VLCLibraryShowsDataSource.m \
 	gui/macosx/library/video-library/VLCLibraryVideoViewController.h \
@@ -244,10 +287,18 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/library/audio-library/VLCLibraryAudioTableViewDelegate.m \
 	gui/macosx/library/audio-library/VLCLibraryAudioViewController.h \
 	gui/macosx/library/audio-library/VLCLibraryAudioViewController.m \
+	gui/macosx/library/audio-library/VLCLibraryCollectionViewAudioGroupSupplementaryDetailView.h \
+	gui/macosx/library/audio-library/VLCLibraryCollectionViewAudioGroupSupplementaryDetailView.m \
 	gui/macosx/library/audio-library/VLCLibrarySongTableCellView.h \
 	gui/macosx/library/audio-library/VLCLibrarySongTableCellView.m \
 	gui/macosx/library/audio-library/VLCLibrarySongsTableViewSongPlayingTableCellView.h \
 	gui/macosx/library/audio-library/VLCLibrarySongsTableViewSongPlayingTableCellView.m \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesDataSource.h \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesDataSource.m \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesTableViewDelegate.h \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesTableViewDelegate.m \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesViewController.h \
+	gui/macosx/library/favorites-library/VLCLibraryFavoritesViewController.m \
 	gui/macosx/library/media-source/VLCLibraryMediaSourceViewController.h \
 	gui/macosx/library/media-source/VLCLibraryMediaSourceViewController.m \
 	gui/macosx/library/media-source/VLCMediaSource.h \
@@ -365,6 +416,7 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/preferences/prefs.m \
 	gui/macosx/preferences/prefs_widgets.h \
 	gui/macosx/preferences/prefs_widgets.m \
+	gui/macosx/shaders/VLCShaderTypes.h \
 	gui/macosx/views/iCarousel/iCarousel.h \
 	gui/macosx/views/iCarousel/iCarousel.m \
 	gui/macosx/views/VLCBasicView.h \
@@ -385,12 +437,16 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/views/VLCImageButton.m \
 	gui/macosx/views/VLCImageView.h \
 	gui/macosx/views/VLCImageView.m \
+	gui/macosx/views/VLCLibraryRatingIndicator.h \
+	gui/macosx/views/VLCLibraryRatingIndicator.m \
 	gui/macosx/views/VLCLinearProgressIndicator.h \
 	gui/macosx/views/VLCLinearProgressIndicator.m \
 	gui/macosx/views/VLCLoadingOverlayView.h \
 	gui/macosx/views/VLCLoadingOverlayView.m \
 	gui/macosx/views/VLCNoResultsLabel.h \
 	gui/macosx/views/VLCNoResultsLabel.m \
+	gui/macosx/views/VLCPlaybackEndViewController.h \
+	gui/macosx/views/VLCPlaybackEndViewController.m \
 	gui/macosx/views/VLCPlaybackProgressSlider.h \
 	gui/macosx/views/VLCPlaybackProgressSlider.m \
 	gui/macosx/views/VLCPlaybackProgressSliderCell.h \
@@ -401,6 +457,8 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/views/VLCScrollingClipView.m \
 	gui/macosx/views/VLCSettingTextField.h \
 	gui/macosx/views/VLCSettingTextField.m \
+	gui/macosx/views/VLCSnowEffectView.h \
+	gui/macosx/views/VLCSnowEffectView.m \
 	gui/macosx/views/VLCStatusNotifierView.h \
 	gui/macosx/views/VLCStatusNotifierView.m \
 	gui/macosx/views/VLCSubScrollView.h \
@@ -499,15 +557,18 @@ libmacosx_plugin_la_XIB_SOURCES = \
 	gui/macosx/UI/VLCLibraryCarouselViewItemView.xib \
 	gui/macosx/UI/VLCLibraryCollectionViewItem.xib \
 	gui/macosx/UI/VLCLibraryCollectionViewMediaItemListSupplementaryDetailView.xib \
+	gui/macosx/UI/VLCLibraryCollectionViewAudioGroupSupplementaryDetailView.xib \
 	gui/macosx/UI/VLCLibraryCollectionViewMediaItemSupplementaryDetailView.xib \
 	gui/macosx/UI/VLCLibraryHeroView.xib \
 	gui/macosx/UI/VLCLibraryHomeViewActionsView.xib \
 	gui/macosx/UI/VLCLibrarySongTableCellView.xib \
+	gui/macosx/UI/VLCClassicMainVideoView.xib \
 	gui/macosx/UI/VLCMainVideoView.xib \
 	gui/macosx/UI/VLCMainVideoViewAudioMediaDecorativeView.xib \
 	gui/macosx/UI/VLCMediaSourceCollectionViewItem.xib \
 	gui/macosx/UI/VLCMediaSourceDeviceCollectionViewItem.xib \
 	gui/macosx/UI/VLCInformationWindow.xib \
+	gui/macosx/UI/VLCPlaybackEndView.xib \
 	gui/macosx/UI/Open.xib \
 	gui/macosx/UI/PlaylistAccessoryView.xib \
 	gui/macosx/UI/PopupPanel.xib \
@@ -528,7 +589,6 @@ if ENABLE_MACOSX_UI
 gui_LTLIBRARIES += libmacosx_plugin.la
 BUILT_SOURCES += $(libmacosx_plugin_la_XIB_SOURCES:.xib=.nib)
 endif
-
 
 libmacosx_plugin_la_RES = \
 	gui/macosx/Resources/App-Icons/VLC-Xmas.icns \

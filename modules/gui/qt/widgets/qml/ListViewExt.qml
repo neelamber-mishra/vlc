@@ -77,6 +77,9 @@ ListView {
 
     // Settings
 
+    pixelAligned: (MainCtx.qtVersion() >= MainCtx.qtVersionCheck(6, 2, 5)) // QTBUG-103996
+                  && (Screen.pixelDensity >= VLCStyle.highPixelDensityThreshold) // no need for sub-pixel alignment with high pixel density
+
     focus: true
 
     activeFocusOnTab: true
@@ -307,6 +310,11 @@ ListView {
     Accessible.role: Accessible.List
 
     add: Transition {
+        // Transition is relevant when drag and drop is feasible.
+        // Component approach can not be used here because `Transition`
+        // does not have a "target" property, and wants a valid parent.
+        enabled: !!root.acceptDropFunc
+
         OpacityAnimator {
             from: 0.0 // QTBUG-66475
             to: 1.0
@@ -340,6 +348,11 @@ ListView {
     //          issue. See QTBUG-131106, QTBUG-89158, ...
 
     moveDisplaced: Transition {
+        // Transition is relevant when drag and drop is feasible.
+        // Component approach can not be used here because `Transition`
+        // does not have a "target" property, and wants a valid parent.
+        enabled: !!root.acceptDropFunc
+
         NumberAnimation {
             // TODO: Use YAnimator >= Qt 6.0 (QTBUG-66475)
             property: (root.orientation === ListView.Vertical) ? "y" : "x"
@@ -428,6 +441,34 @@ ListView {
         Helpers.enforceFocus(currentItem, reason);
     }
 
+    // Qt does not allow having multiple behavior on a single
+    // property. Having this behavior for a single purpose can
+    // be problematic for the cases where a different behavior
+    // wanted to be used. However, I have not found a nice
+    // solution for that, so we have this behavior here for now.
+    Behavior on contentX {
+        id: horizontalPageAnimationBehavior
+
+        enabled: false
+
+        // NOTE: Usage of `SmoothedAnimation` is intentional here.
+        SmoothedAnimation {
+            duration: VLCStyle.duration_veryLong
+            easing.type: Easing.InOutSine
+        }
+    }
+
+    function animatePage(func) {
+        // One might think, what is the purpose of this if `highlightFollowsCurrentItem` (default
+        // true) causes the view to smoothly follow the current item. The thing is that, not in
+        // all cases the current index is changed. With the horizontal page buttons, for example,
+        // it is not conventional to change the current index.
+        console.assert(func === root.nextPage || func === root.prevPage)
+        horizontalPageAnimationBehavior.enabled = true
+        func()
+        horizontalPageAnimationBehavior.enabled = false
+    }
+
     function nextPage() {
         root.contentX += (Math.min(root.width, (root.contentWidth - root.width - root.contentX)))
     }
@@ -511,7 +552,23 @@ ListView {
             root.updateSelection(event.modifiers, oldIndex, newIndex);
 
             // NOTE: If we skip this call the item might end up under the header.
-            positionViewAtIndex(currentIndex, ItemView.Contain);
+            if (root.highlightFollowsCurrentItem) {
+                // FIXME: Items can go beneath `OverlayHeader` or `OverlayFooter`.
+                //        We should move the header and footer outside of the view,
+                //        if we do not want that behavior instead of having this
+                //        workaround, as Qt does not seem to offer that configuration
+                //        as a built-in mode in its views.
+
+                if (root.headerItem && (root.headerPositioning !== ListView.InlineHeader)) {
+                    if (root.currentItem.y < (root.headerItem.y + root.headerItem.height))
+                        positionViewAtIndex(currentIndex, ItemView.Contain);
+                }
+
+                if (root.footerItem && (root.footerPositioning !== ListView.InlineFooter)) {
+                    if (root.currentItem.y > root.footerItem.y)
+                        positionViewAtIndex(currentIndex, ItemView.Contain);
+                }
+            }
 
             // NOTE: We make sure we have the proper visual focus on components.
             if (oldIndex < currentIndex)
@@ -683,7 +740,7 @@ ListView {
     // FIXME: We probably need to upgrade these RoundButton(s) eventually. And we probably need
     //        to have some kind of animation when switching pages.
 
-    RoundButton {
+    RoundButtonExt {
         id: buttonLeft
 
         anchors.left: parent.left
@@ -695,12 +752,14 @@ ListView {
 
         visible: (root.orientation === ListView.Horizontal && !(root.atXBeginning))
 
-        onClicked: root.prevPage()
+        onClicked: {
+            root.animatePage(root.prevPage)
+        }
 
         activeFocusOnTab: false
     }
 
-    RoundButton {
+    RoundButtonExt {
         id: buttonRight
 
         anchors.right: parent.right
@@ -710,7 +769,9 @@ ListView {
 
         visible: (root.orientation === ListView.Horizontal && !(root.atXEnd))
 
-        onClicked: root.nextPage()
+        onClicked: {
+            root.animatePage(root.nextPage)
+        }
 
         activeFocusOnTab: false
     }

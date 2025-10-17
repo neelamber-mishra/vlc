@@ -31,6 +31,7 @@
 #import "extensions/NSView+VLCAdditions.h"
 #import "extensions/NSWindow+VLCAdditions.h"
 
+#import "main/VLCApplication.h"
 #import "main/VLCMain.h"
 #import "menus/VLCMainMenu.h"
 
@@ -76,7 +77,9 @@
 #import "views/VLCImageView.h"
 #import "views/VLCLoadingOverlayView.h"
 #import "views/VLCNoResultsLabel.h"
+#import "views/VLCPlaybackEndViewController.h"
 #import "views/VLCRoundedCornerTextField.h"
+#import "views/VLCSnowEffectView.h"
 #import "views/VLCTrackingView.h"
 
 #import "windows/controlsbar/VLCMainWindowControlsBar.h"
@@ -189,6 +192,10 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
                                name:VLCPlayerCurrentMediaItemChanged
                              object:nil];
     [notificationCenter addObserver:self
+                           selector:@selector(playerCurrentMediaItemChanged:)
+                               name:VLCPlayerCurrentMediaItemChanged
+                             object:nil];
+    [notificationCenter addObserver:self
                            selector:@selector(playerStateChanged:)
                                name:VLCPlayerStateChanged
                              object:nil];
@@ -284,6 +291,14 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
         [view.leftAnchor constraintEqualToAnchor:self.libraryTargetView.leftAnchor],
         [view.rightAnchor constraintEqualToAnchor:self.libraryTargetView.rightAnchor]
     ]];
+
+    if (VLCMain.sharedInstance.metalLibrary && ((VLCApplication *)NSApplication.sharedApplication).winterHolidaysTheming) {
+        VLCSnowEffectView * const snowView =
+            [[VLCSnowEffectView alloc] initWithFrame:self.contentView.bounds];
+        [self.libraryTargetView addSubview:snowView];
+        snowView.translatesAutoresizingMaskIntoConstraints = NO;
+        [snowView applyConstraintsToFillSuperview];
+    }
 }
 
 - (void)displayLibraryPlaceholderViewWithImage:(NSImage *)image
@@ -397,25 +412,6 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
 #pragma mark - video output controlling
 
-- (void)setHasActiveVideo:(BOOL)hasActiveVideo
-{
-    [super setHasActiveVideo:hasActiveVideo];
-    if (hasActiveVideo) {
-        [self enableVideoPlaybackAppearance];
-    } else if (!self.videoViewController.view.hidden) {
-        // If we are switching to audio media then keep the active main video view open
-        NSURL * const currentMediaUrl = _playQueueController.playerController.URLOfCurrentMediaItem;
-        VLCMediaLibraryMediaItem * const mediaItem = [VLCMediaLibraryMediaItem mediaItemForURL:currentMediaUrl];
-        const BOOL decorativeViewVisible = mediaItem != nil && mediaItem.mediaType == VLC_ML_MEDIA_TYPE_AUDIO;
-
-        if (!decorativeViewVisible) {
-            [self disableVideoPlaybackAppearance];
-        }
-    } else {
-        [self disableVideoPlaybackAppearance];
-    }
-}
-
 - (void)playerStateChanged:(NSNotification *)notification
 {
     if (_playQueueController.playerController.playerState == VLC_PLAYER_STATE_STOPPED) {
@@ -425,6 +421,26 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
     if (self.videoViewController.view.isHidden) {
         [self showControlsBar];
+    }
+}
+
+- (void)playerCurrentMediaItemChanged:(NSNotification *)notification
+{
+    NSParameterAssert(notification);
+    VLCPlayerController * const controller = notification.object;
+    NSAssert(controller != nil,
+             @"Player current media item changed notification should have valid player controller");
+
+    // Live video playback in controls bar artwork button handling
+    if (self.splitViewController.mainVideoModeEnabled) {
+        return;
+    }
+
+    if (controller.currentMediaIsAudioOnly && _acquiredVideoView) {
+        [self.videoViewController returnVideoView:_acquiredVideoView];
+        _acquiredVideoView = nil;
+    } else if (!controller.currentMediaIsAudioOnly && _acquiredVideoView == nil) {
+        [self configureArtworkButtonLiveVideoView];
     }
 }
 
@@ -453,9 +469,28 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     self.controlsBar.thumbnailTrackingView.viewToHide.hidden = artworkButtonDisabled;
 }
 
+- (void)configureArtworkButtonLiveVideoView
+{
+    VLCPlayerController * const playerController = self.playerController;
+    const BOOL videoTrackDisabled =
+        !playerController.videoTracksEnabled || !playerController.selectedVideoTrack.selected;
+        
+    if (videoTrackDisabled || !var_InheritBool(getIntf(), "embedded-video"))
+        return;
+
+    _acquiredVideoView = [self.videoViewController acquireVideoView];
+    if (_acquiredVideoView) {
+        [self.controlsBar.artworkImageView addSubview:_acquiredVideoView
+                                           positioned:NSWindowBelow
+                                           relativeTo:self.artworkButton];
+        [_acquiredVideoView applyConstraintsToFillSuperview];
+    }
+}
+
 - (void)hideControlsBarImmediately
 {
-    self.controlsBarHeightConstraint.constant = 0;
+    self.controlsBar.bottomBarView.hidden = YES;
+    self.controlsBar.bottomBarView.alphaValue = 0;
 }
 
 - (void)hideControlsBar
@@ -463,21 +498,25 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext * const context) {
         context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
         context.duration = VLCLibraryUIUnits.controlsFadeAnimationDuration;
-        self.controlsBarHeightConstraint.animator.constant = 0;
-    } completionHandler:nil];
+        self.controlsBar.bottomBarView.animator.alphaValue = 0;
+    } completionHandler:^{
+        self.controlsBar.bottomBarView.hidden = self.controlsBar.bottomBarView.alphaValue == 0;
+    }];
 }
 
 - (void)showControlsBarImmediately
 {
-    self.controlsBarHeightConstraint.constant = VLCLibraryUIUnits.libraryWindowControlsBarHeight;
+    self.controlsBar.bottomBarView.hidden = NO;
+    self.controlsBar.bottomBarView.alphaValue = 1;
 }
 
 - (void)showControlsBar
 {
+    self.controlsBar.bottomBarView.hidden = NO;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext * const context) {
         context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
         context.duration = VLCLibraryUIUnits.controlsFadeAnimationDuration;
-        self.controlsBarHeightConstraint.animator.constant = VLCLibraryUIUnits.libraryWindowControlsBarHeight;
+        self.controlsBar.bottomBarView.animator.alphaValue = 1;
     } completionHandler:nil];
 }
 
@@ -534,8 +573,20 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
         return;
     }
 
+    NSAppearance *darkAppearance = nil;
+    if (@available(macOS 10.14, *)) {
+        darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    } else {
+        darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameVibrantDark];
+    }
+
+    if (darkAppearance) {
+        self.appearance = darkAppearance;
+    }
+
     if (_acquiredVideoView) {
         [self.videoViewController returnVideoView:_acquiredVideoView];
+        _acquiredVideoView = nil;
     }
 
     [self presentVideoView];
@@ -552,6 +603,8 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
 - (void)disableVideoPlaybackAppearance
 {
+    self.appearance = nil;
+
     [self makeFirstResponder:self.splitViewController.multifunctionSidebarViewController.view];
     [VLCMain.sharedInstance.voutProvider updateWindowLevelForHelperWindows:NSNormalWindowLevel];
 
@@ -562,12 +615,8 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self showControlsBarImmediately];
     [self updateArtworkButtonEnabledState];
 
-    _acquiredVideoView = [self.videoViewController acquireVideoView];
-    if (_acquiredVideoView) {
-        [self.controlsBar.artworkImageView addSubview:_acquiredVideoView
-                                        positioned:NSWindowBelow
-                                        relativeTo:self.artworkButton];
-        [_acquiredVideoView applyConstraintsToFillSuperview];
+    if (!self.playQueueController.playerController.currentMediaIsAudioOnly) {
+        [self configureArtworkButtonLiveVideoView];
     }
 
     self.splitViewController.mainVideoModeEnabled = NO;
@@ -661,15 +710,19 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 {
     [super windowWillEnterFullScreen:notification];
 
-    if (!self.videoViewController.view.hidden) {
+    if (self.splitViewController.mainVideoModeEnabled) {
         [self hideControlsBar];
+    }
+
+    if (self.splitViewController.mainVideoModeEnabled) {
+        self.splitViewController.multifunctionSidebarItem.animator.collapsed = YES;
     }
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
 {
     [super windowDidEnterFullScreen:notification];
-    if (!self.videoViewController.view.hidden) {
+    if (!self.splitViewController.mainVideoModeEnabled) {
         [self showControlsBar];
     }
 }

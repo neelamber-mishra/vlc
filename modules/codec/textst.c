@@ -182,7 +182,7 @@ static size_t textst_Decode_palette(decoder_t *p_dec, const uint8_t *p_data, siz
     i_size = i_data = __MIN(i_data, i_size);
     while (i_data > 4)
     {
-        p_sys->palette[p_data[0]] = /* YCrCbT to ARGB */
+        p_sys->palette[p_data[0]] = /* YCrCbT limited range to ARGB full range */
                 ( (uint32_t)((float)p_data[1] +1.402f * (p_data[2]-128)) << 16 ) |
                 ( (uint32_t)((float)p_data[1] -0.34414 * (p_data[3]-128) -0.71414 * (p_data[2]-128)) << 8 ) |
                 ( (uint32_t)((float)p_data[1] +1.722 * (p_data[3]-128)) ) |
@@ -237,8 +237,8 @@ static int Decode(decoder_t *p_dec, block_t *p_block)
         (p_block->i_flags & BLOCK_FLAG_CORRUPTED) == 0 &&
         (p_sub = decoder_NewSubpictureText(p_dec)))
     {
-        p_sub->i_start = FROM_SCALE(((int64_t)(p_block->p_buffer[3] & 0x01) << 32) | GetDWBE(&p_block->p_buffer[4]));
-        p_sub->i_stop = FROM_SCALE(((int64_t)(p_block->p_buffer[8] & 0x01) << 32) | GetDWBE(&p_block->p_buffer[9]));
+        p_sub->i_start = FROM_SCALE(((ts_90khz_t)(p_block->p_buffer[3] & 0x01) << 32) | GetDWBE(&p_block->p_buffer[4]));
+        p_sub->i_stop = FROM_SCALE(((ts_90khz_t)(p_block->p_buffer[8] & 0x01) << 32) | GetDWBE(&p_block->p_buffer[9]));
         if (p_sub->i_start < p_block->i_dts)
         {
             p_sub->i_stop += p_block->i_dts - p_sub->i_start;
